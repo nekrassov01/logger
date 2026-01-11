@@ -1,0 +1,90 @@
+GOBIN ?= $(shell go env GOPATH)/bin
+VERSION := $$(make -s show-version)
+
+HAS_LINT := $(shell command -v $(GOBIN)/golangci-lint 2> /dev/null)
+HAS_VULN := $(shell command -v $(GOBIN)/govulncheck 2> /dev/null)
+HAS_BUMP := $(shell command -v $(GOBIN)/gobump 2> /dev/null)
+
+BIN_LINT := github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+BIN_VULN := golang.org/x/vuln/cmd/govulncheck@latest
+BIN_BUMP := github.com/x-motemen/gobump/cmd/gobump@latest
+
+export GO111MODULE=on
+
+.PHONY: deps deps-lint deps-vuln deps-bump clean check test cover bench lint vuln show-version check-git publish
+
+# -------
+#  deps
+# -------
+
+deps: deps-lint deps-vuln deps-bump
+
+deps-lint:
+ifndef HAS_LINT
+	go install $(BIN_LINT)
+endif
+
+deps-vuln:
+ifndef HAS_VULN
+	go install $(BIN_VULN)
+endif
+
+deps-bump:
+ifndef HAS_BUMP
+	go install $(BIN_BUMP)
+endif
+
+# ----------
+#  cleanup
+# ----------
+
+clean:
+	go clean
+	rm -f cover.out cover.html cpu.prof mem.prof benchmarks.test
+
+# --------
+#  check
+# --------
+
+check: test cover bench lint vuln
+
+test:
+	go test -race -cover -v -coverprofile=cover.out -covermode=atomic $$(go list ./... | grep -vE "examples|benchmarks")
+
+cover:
+	go tool cover -html=cover.out -o cover.html
+
+bench:
+	go test -bench . -benchmem -count 5 -benchtime=10000x -cpuprofile=cpu.prof -memprofile=mem.prof ./benchmarks/
+
+lint: deps-lint
+	golangci-lint run --verbose ./...
+
+vuln: deps-vuln
+	govulncheck -test -show verbose ./...
+
+example:
+	go run ./examples/
+
+# ----------
+#  release
+# ----------
+
+show-version: deps-bump
+	gobump show -r $(CMD_PATH)
+
+check-git:
+ifneq ($(shell git status --porcelain),)
+	$(error git workspace is dirty)
+endif
+ifneq ($(shell git rev-parse --abbrev-ref HEAD),main)
+	$(error current branch is not main)
+endif
+
+publish: deps-bump check-git
+	gobump up -w .
+	git commit -am "bump up version to $(VERSION)"
+	git tag "v$(VERSION)"
+	git push origin main
+	git push origin "refs/tags/v$(VERSION)"
+
