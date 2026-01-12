@@ -2,8 +2,8 @@
   <h2 align="center">LOGGER</h2>
   <p align="center">A customizable, minimal, zero-allocation logger for Go CLI</p>
   <p align="center">
-    <a href="https://github.com/nekrassov01/logger/actions/workflows/ci.yml"><img src="https://github.com/nekrassov01/logger/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
-    <a href="https://codecov.io/gh/nekrassov01/logger"><img src="https://codecov.io/gh/nekrassov01/logger/graph/badge.svg?token=Z75YW69MQK" alt="Codecov" /></a>
+    <a href="https://github.com/nekrassov01/logger/actions/workflows/ci.yaml"><img src="https://github.com/nekrassov01/logger/actions/workflows/ci.yaml/badge.svg?branch=main" alt="CI" /></a>
+    <a href="https://codecov.io/gh/nekrassov01/logger"><img src="https://codecov.io/gh/nekrassov01/logger/graph/badge.svg?token=M7XES44INB alt="Codecov" /></a>
     <a href="https://pkg.go.dev/github.com/nekrassov01/logger"><img src="https://pkg.go.dev/badge/github.com/nekrassov01/logger.svg" alt="Go Reference" /></a>
     <a href="https://goreportcard.com/report/github.com/nekrassov01/logger"><img src="https://goreportcard.com/badge/github.com/nekrassov01/logger" alt="Go Report Card" /></a>
     <img src="https://img.shields.io/github/license/nekrassov01/logger" alt="LICENSE" />
