@@ -62,8 +62,9 @@ jobs:
       - name: Run tests
         run: |
           git diff --cached --exit-code
-          go test -race ./... -v
+          go test -race -cover -v -coverprofile="cover.out" -covermode=atomic $(go list ./... | grep -vE "examples|benchmarks")
       - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
