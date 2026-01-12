@@ -72,7 +72,7 @@ func TestNewCLIHandler(t *testing.T) {
 		{
 			name: "with caller",
 			args: args{opts: []CLIHandlerOption{
-				WithCaller(),
+				WithCaller(true),
 			}},
 			check: func(t *testing.T, h *CLIHandler) {
 				if !h.hasCaller {
@@ -83,7 +83,7 @@ func TestNewCLIHandler(t *testing.T) {
 		{
 			name: "with time",
 			args: args{opts: []CLIHandlerOption{
-				WithTime(),
+				WithTime(true),
 			}},
 			check: func(t *testing.T, h *CLIHandler) {
 				if !h.hasTime {
@@ -129,8 +129,8 @@ func TestNewCLIHandler(t *testing.T) {
 			args: args{opts: []CLIHandlerOption{
 				WithLevel(slog.LevelWarn),
 				WithPrefix("TEST"),
-				WithCaller(),
-				WithTime(),
+				WithCaller(true),
+				WithTime(true),
 				WithTimeFormat(time.Layout),
 				WithStyle(Style2()),
 			}},

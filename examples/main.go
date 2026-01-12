@@ -14,9 +14,9 @@ func main() {
 		h slog.Handler
 
 		withLevel       = log.WithLevel(slog.LevelDebug)
-		withTime        = log.WithTime()
+		withTime        = log.WithTime(true)
 		withTimeFormat  = log.WithTimeFormat(time.RFC3339)
-		withCaller      = log.WithCaller()
+		withCaller      = log.WithCaller(true)
 		withAttrHandler = log.WithAttrHandler(func(a slog.Attr) slog.Attr {
 			if a.Key == "password" {
 				return slog.Attr{

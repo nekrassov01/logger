@@ -80,16 +80,16 @@ func WithPrefix(prefix string) CLIHandlerOption {
 }
 
 // WithCaller returns a CLIHandlerOption that enables caller information.
-func WithCaller() CLIHandlerOption {
+func WithCaller(has bool) CLIHandlerOption {
 	return func(c *CLIHandler) {
-		c.hasCaller = true
+		c.hasCaller = has
 	}
 }
 
 // WithTime returns a CLIHandlerOption that enables time information.
-func WithTime() CLIHandlerOption {
+func WithTime(has bool) CLIHandlerOption {
 	return func(c *CLIHandler) {
-		c.hasTime = true
+		c.hasTime = has
 	}
 }
 

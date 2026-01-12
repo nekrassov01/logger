@@ -23,9 +23,9 @@ func newLogger(attr bool) *log.Logger {
 	h := log.NewCLIHandler(&bytes.Buffer{},
 		log.WithLevel(slog.LevelDebug),
 		log.WithPrefix("APP"),
-		log.WithTime(),
+		log.WithTime(true),
 		log.WithTimeFormat(time.RFC3339),
-		log.WithCaller(),
+		log.WithCaller(true),
 		log.WithAttrHandler(attrHandler),
 		log.WithStyle(log.Style1()),
 	)
