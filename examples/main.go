@@ -43,7 +43,7 @@ func main() {
 	// Style0: No colors
 	h = log.NewCLIHandler(os.Stdout,
 		withLevel,
-		log.WithPrefix("NO COLOR:"),
+		log.WithLabel("NO COLOR:"),
 		withTime,
 		withTimeFormat,
 		withCaller,
@@ -65,7 +65,7 @@ func main() {
 	// Style1: logging style with basic foreground colors.
 	h = log.NewCLIHandler(os.Stdout,
 		withLevel,
-		log.WithPrefix("BASIC FOREGROUND COLOR:"),
+		log.WithLabel("BASIC FOREGROUND COLOR:"),
 		withTime,
 		withTimeFormat,
 		withCaller,
@@ -87,7 +87,7 @@ func main() {
 	// Style2: logging style with vivid foreground colors.
 	h = log.NewCLIHandler(os.Stdout,
 		withLevel,
-		log.WithPrefix("VIVID FOREGROUND COLOR:"),
+		log.WithLabel("VIVID FOREGROUND COLOR:"),
 		withTime,
 		withTimeFormat,
 		withCaller,
@@ -109,7 +109,7 @@ func main() {
 	// Style3: logging style with basic background colors.
 	h = log.NewCLIHandler(os.Stdout,
 		withLevel,
-		log.WithPrefix("BASIC BACKGROUND COLOR:"),
+		log.WithLabel("BASIC BACKGROUND COLOR:"),
 		withTime,
 		withTimeFormat,
 		withCaller,
@@ -131,7 +131,7 @@ func main() {
 	// Style4: logging style with vivid background colors.
 	h = log.NewCLIHandler(os.Stdout,
 		withLevel,
-		log.WithPrefix("VIVID BACKGROUND COLOR:"),
+		log.WithLabel("VIVID BACKGROUND COLOR:"),
 		withTime,
 		withTimeFormat,
 		withCaller,
@@ -232,7 +232,7 @@ func main() {
 	)
 	h = log.NewCLIHandler(os.Stdout,
 		withLevel,
-		log.WithPrefix("ORIGINAL STYLE"),
+		log.WithLabel("ORIGINAL STYLE"),
 		withTime,
 		withTimeFormat,
 		withCaller,

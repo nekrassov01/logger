@@ -72,8 +72,8 @@ func WithLevel(level slog.Leveler) CLIHandlerOption {
 	}
 }
 
-// WithPrefix returns a CLIHandlerOption that sets the prefix.
-func WithPrefix(prefix string) CLIHandlerOption {
+// WithLabel returns a CLIHandlerOption that sets the prefix.
+func WithLabel(prefix string) CLIHandlerOption {
 	return func(c *CLIHandler) {
 		c.prefix = prefix
 	}
@@ -188,7 +188,7 @@ func (h *CLIHandler) Handle(_ context.Context, r slog.Record) error {
 			if f := runtime.FuncForPC(r.PC); f != nil {
 				name := f.Name()
 				file, line := f.FileLine(r.PC)
-				if caller.Fullpath {
+				if caller.Path {
 					name = file
 				}
 				if file != "" {

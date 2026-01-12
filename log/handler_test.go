@@ -61,7 +61,7 @@ func TestNewCLIHandler(t *testing.T) {
 		{
 			name: "with prefix",
 			args: args{opts: []CLIHandlerOption{
-				WithPrefix("[APP]"),
+				WithLabel("[APP]"),
 			}},
 			check: func(t *testing.T, h *CLIHandler) {
 				if h.prefix != "[APP]" {
@@ -128,7 +128,7 @@ func TestNewCLIHandler(t *testing.T) {
 			name: "all options",
 			args: args{opts: []CLIHandlerOption{
 				WithLevel(slog.LevelWarn),
-				WithPrefix("TEST"),
+				WithLabel("TEST"),
 				WithCaller(true),
 				WithTime(true),
 				WithTimeFormat(time.Layout),
@@ -431,7 +431,7 @@ func TestCLIHandler_Handle(t *testing.T) {
 				pcCache:   make(map[uintptr][]byte),
 				style: func() *Style {
 					s := Style0()
-					s.Caller.Fullpath = true
+					s.Caller.Path = true
 					return s
 				}(),
 			},

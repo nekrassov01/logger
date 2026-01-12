@@ -139,7 +139,7 @@ func TestLogger_Logf(t *testing.T) {
 			fields: fields{
 				Logger: slog.New(
 					func() slog.Handler {
-						h := log.NewCLIHandler(&buf, log.WithLevel(slog.LevelDebug), log.WithPrefix("TEST"), log.WithStyle(log.Style0()))
+						h := log.NewCLIHandler(&buf, log.WithLevel(slog.LevelDebug), log.WithLabel("TEST"), log.WithStyle(log.Style0()))
 						return h
 					}()),
 			},
@@ -155,7 +155,7 @@ func TestLogger_Logf(t *testing.T) {
 			fields: fields{
 				Logger: slog.New(
 					func() slog.Handler {
-						h := log.NewCLIHandler(&buf, log.WithLevel(slog.LevelWarn), log.WithPrefix("TEST"), log.WithStyle(log.Style0()))
+						h := log.NewCLIHandler(&buf, log.WithLevel(slog.LevelWarn), log.WithLabel("TEST"), log.WithStyle(log.Style0()))
 						return h
 					}(),
 				),
@@ -172,7 +172,7 @@ func TestLogger_Logf(t *testing.T) {
 			fields: fields{
 				Logger: slog.New(
 					func() slog.Handler {
-						h := log.NewCLIHandler(&buf, log.WithLevel(slog.LevelInfo), log.WithPrefix("TEST"), log.WithStyle(log.Style0()))
+						h := log.NewCLIHandler(&buf, log.WithLevel(slog.LevelInfo), log.WithLabel("TEST"), log.WithStyle(log.Style0()))
 						return h
 					}(),
 				),

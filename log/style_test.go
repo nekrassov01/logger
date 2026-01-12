@@ -87,15 +87,15 @@ func TestNewStyle(t *testing.T) {
 			name: "with caller options",
 			opts: []StyleOption{
 				func(s *Style) {
-					s.Caller.Fullpath = true
+					s.Caller.Path = true
 					s.Caller.Prefix.Text = "C<"
 					s.Caller.Suffix.Text = ">C"
 					s.Caller.Color = NewColor(FgGreen)
 				},
 			},
 			check: func(t *testing.T, s *Style) {
-				if !s.Caller.Fullpath {
-					t.Error("want Caller.Fullpath true, got false")
+				if !s.Caller.Path {
+					t.Error("want Caller.Path true, got false")
 				}
 				if s.Caller.Prefix.Text != "C<" {
 					t.Errorf("want Caller.Prefix.Text 'C<', got '%s'", s.Caller.Prefix.Text)
@@ -301,14 +301,14 @@ func TestWithCallerStyle(t *testing.T) {
 		{
 			name: "set caller style",
 			caller: CallerStyle{
-				Fullpath: true,
-				Prefix:   AffixStyle{Text: "C<", Color: NewColor(FgBlue)},
-				Suffix:   AffixStyle{Text: ">C", Color: NewColor(FgRed)},
-				Color:    NewColor(FgGreen),
+				Path:   true,
+				Prefix: AffixStyle{Text: "C<", Color: NewColor(FgBlue)},
+				Suffix: AffixStyle{Text: ">C", Color: NewColor(FgRed)},
+				Color:  NewColor(FgGreen),
 			},
 			check: func(t *testing.T, s *Style) {
-				if !s.Caller.Fullpath {
-					t.Error("want Fullpath true, got false")
+				if !s.Caller.Path {
+					t.Error("want Path true, got false")
 				}
 				if s.Caller.Prefix.Text != "C<" {
 					t.Errorf("want Prefix.Text 'C<', got '%s'", s.Caller.Prefix.Text)
@@ -364,10 +364,10 @@ func TestStyles(t *testing.T) {
 				Separator:  "=",
 			},
 			Caller: CallerStyle{
-				Prefix:   AffixStyle{Text: "<", Color: nil},
-				Suffix:   AffixStyle{Text: ">", Color: nil},
-				Color:    nil,
-				Fullpath: false,
+				Prefix: AffixStyle{Text: "<", Color: nil},
+				Suffix: AffixStyle{Text: ">", Color: nil},
+				Color:  nil,
+				Path:   false,
 			},
 		}
 		check(t, Style0(), want)
@@ -388,10 +388,10 @@ func TestStyles(t *testing.T) {
 				Separator: "=",
 			},
 			Caller: CallerStyle{
-				Prefix:   AffixStyle{Text: "<", Color: NewColor(FgHiBlack)},
-				Suffix:   AffixStyle{Text: ">", Color: NewColor(FgHiBlack)},
-				Color:    NewColor(FgHiBlack, Underline),
-				Fullpath: false,
+				Prefix: AffixStyle{Text: "<", Color: NewColor(FgHiBlack)},
+				Suffix: AffixStyle{Text: ">", Color: NewColor(FgHiBlack)},
+				Color:  NewColor(FgHiBlack, Underline),
+				Path:   false,
 			},
 		}
 		check(t, Style1(), want)
@@ -412,10 +412,10 @@ func TestStyles(t *testing.T) {
 				Separator: "=",
 			},
 			Caller: CallerStyle{
-				Prefix:   AffixStyle{Text: "<", Color: NewColor(FgHiBlack)},
-				Suffix:   AffixStyle{Text: ">", Color: NewColor(FgHiBlack)},
-				Color:    NewColor(FgHiBlack, Underline),
-				Fullpath: false,
+				Prefix: AffixStyle{Text: "<", Color: NewColor(FgHiBlack)},
+				Suffix: AffixStyle{Text: ">", Color: NewColor(FgHiBlack)},
+				Color:  NewColor(FgHiBlack, Underline),
+				Path:   false,
 			},
 		}
 		check(t, Style2(), want)
@@ -436,10 +436,10 @@ func TestStyles(t *testing.T) {
 				Separator: "=",
 			},
 			Caller: CallerStyle{
-				Prefix:   AffixStyle{Text: "<", Color: NewColor(FgHiBlack)},
-				Suffix:   AffixStyle{Text: ">", Color: NewColor(FgHiBlack)},
-				Color:    NewColor(FgHiBlack, Underline),
-				Fullpath: false,
+				Prefix: AffixStyle{Text: "<", Color: NewColor(FgHiBlack)},
+				Suffix: AffixStyle{Text: ">", Color: NewColor(FgHiBlack)},
+				Color:  NewColor(FgHiBlack, Underline),
+				Path:   false,
 			},
 		}
 		check(t, Style3(), want)
@@ -460,10 +460,10 @@ func TestStyles(t *testing.T) {
 				Separator: "=",
 			},
 			Caller: CallerStyle{
-				Prefix:   AffixStyle{Text: "<", Color: NewColor(FgHiBlack)},
-				Suffix:   AffixStyle{Text: ">", Color: NewColor(FgHiBlack)},
-				Color:    NewColor(FgHiBlack, Underline),
-				Fullpath: false,
+				Prefix: AffixStyle{Text: "<", Color: NewColor(FgHiBlack)},
+				Suffix: AffixStyle{Text: ">", Color: NewColor(FgHiBlack)},
+				Color:  NewColor(FgHiBlack, Underline),
+				Path:   false,
 			},
 		}
 		check(t, Style4(), want)

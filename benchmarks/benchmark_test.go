@@ -22,7 +22,7 @@ func attrHandler(a slog.Attr) slog.Attr {
 func newLogger(attr bool) *log.Logger {
 	h := log.NewCLIHandler(&bytes.Buffer{},
 		log.WithLevel(slog.LevelDebug),
-		log.WithPrefix("APP"),
+		log.WithLabel("APP"),
 		log.WithTime(true),
 		log.WithTimeFormat(time.RFC3339),
 		log.WithCaller(true),
