@@ -6,7 +6,10 @@ on:
       - master
     paths-ignore:
       - "README.md"
-      - ".github/**"
+      - .vscode/**"
+      - "assets/**"
+      - "benchmarks/**"
+      - "examples/**"
     tags-ignore:
       - "v[0-9]+.[0-9]+.[0-9]+"
   pull_request:
@@ -15,7 +18,10 @@ on:
       - master
     paths-ignore:
       - "README.md"
-      - ".github/**"
+      - .vscode/**"
+      - "assets/**"
+      - "benchmarks/**"
+      - "examples/**"
 permissions:
   contents: read
 jobs:
@@ -33,7 +39,7 @@ jobs:
           git config --global core.autocrlf false
           git config --global core.eol lf
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Setup go
@@ -42,7 +48,7 @@ jobs:
           go-version: ${{ matrix.go }}
           cache: false
       - name: Run lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           args: --timeout=10m
@@ -57,3 +63,7 @@ jobs:
         run: |
           git diff --cached --exit-code
           go test -race ./... -v
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
