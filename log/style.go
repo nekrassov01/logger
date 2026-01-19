@@ -39,10 +39,10 @@ type AttrStyle struct {
 
 // CallerStyle config for caller source.
 type CallerStyle struct {
-	Prefix AffixStyle
-	Suffix AffixStyle
-	Color  *Color
-	Path   bool
+	Prefix   AffixStyle
+	Suffix   AffixStyle
+	Color    *Color
+	Fullpath bool
 }
 
 // AffixStyle config for text affixes.

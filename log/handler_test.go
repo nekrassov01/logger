@@ -422,6 +422,37 @@ func TestCLIHandler_Handle(t *testing.T) {
 			},
 		},
 		{
+			name: "caller",
+			fields: fields{
+				w:         &bytes.Buffer{},
+				mu:        &sync.Mutex{},
+				level:     slog.LevelInfo,
+				hasCaller: true,
+				pcCache:   make(map[uintptr][]byte),
+				style: func() *Style {
+					s := Style0()
+					s.Caller.Fullpath = false
+					return s
+				}(),
+			},
+			args: args{
+				ctx: context.Background(),
+				r: func() slog.Record {
+					pc, _, _, _ := runtime.Caller(0)
+					return slog.NewRecord(time.Time{}, slog.LevelInfo, "msg", pc)
+				}(),
+			},
+			wantErr: false,
+			check: func(t *testing.T, output string) {
+				if !strings.Contains(output, ".go:") {
+					t.Errorf("got %q, want contain caller", output)
+				}
+				if strings.Contains(output, "/") {
+					t.Errorf("got %q, want not contain separator /", output)
+				}
+			},
+		},
+		{
 			name: "caller fullpath",
 			fields: fields{
 				w:         &bytes.Buffer{},
@@ -431,7 +462,7 @@ func TestCLIHandler_Handle(t *testing.T) {
 				pcCache:   make(map[uintptr][]byte),
 				style: func() *Style {
 					s := Style0()
-					s.Caller.Path = true
+					s.Caller.Fullpath = true
 					return s
 				}(),
 			},

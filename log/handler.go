@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -186,13 +187,13 @@ func (h *CLIHandler) Handle(_ context.Context, r slog.Record) error {
 			h.writeCaller(buf, b, h.style)
 		} else {
 			if f := runtime.FuncForPC(r.PC); f != nil {
-				name := f.Name()
 				file, line := f.FileLine(r.PC)
-				if caller.Path {
-					name = file
+				path := file
+				if !caller.Fullpath {
+					path = filepath.Base(file)
 				}
 				if file != "" {
-					b = append(b, name...)
+					b = append(b, path...)
 					b = append(b, ':')
 					b = strconv.AppendInt(b, int64(line), 10)
 					h.pcCache[r.PC] = b
