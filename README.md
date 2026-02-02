@@ -26,7 +26,13 @@
 
 [examples/main.go](./examples/main.go)
 
-![terminal](./assets/image.png)
+dark
+
+![dark](./assets/dark.png)
+
+light
+
+![light](./assets/light.png)
 
 ## Benchmarks
 
