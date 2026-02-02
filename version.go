@@ -1,4 +1,4 @@
 package main
 
 // Version is the version of logger.
-const Version = "0.0.6"
+const Version = "0.0.7"
