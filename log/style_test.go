@@ -423,10 +423,10 @@ func TestStyles(t *testing.T) {
 	t.Run("Style3", func(t *testing.T) {
 		want := &Style{
 			Level: map[slog.Level]LevelStyle{
-				slog.LevelDebug: {Text: "DBG", Color: NewColor(Bold, BgMagenta, FgHiWhite), Width: 5},
-				slog.LevelInfo:  {Text: "INF", Color: NewColor(Bold, BgGreen, FgHiWhite), Width: 5},
-				slog.LevelWarn:  {Text: "WRN", Color: NewColor(Bold, BgYellow, FgHiBlack), Width: 5},
-				slog.LevelError: {Text: "ERR", Color: NewColor(Bold, BgRed, FgHiWhite), Width: 5},
+				slog.LevelDebug: {Text: "DBG", Color: NewColor(Bold, BgMagenta), Width: 5},
+				slog.LevelInfo:  {Text: "INF", Color: NewColor(Bold, BgGreen), Width: 5},
+				slog.LevelWarn:  {Text: "WRN", Color: NewColor(Bold, BgYellow), Width: 5},
+				slog.LevelError: {Text: "ERR", Color: NewColor(Bold, BgRed), Width: 5},
 			},
 			Label: LabelStyle{
 				Color: NewColor(FgHiBlack, Bold),
@@ -447,10 +447,10 @@ func TestStyles(t *testing.T) {
 	t.Run("Style4", func(t *testing.T) {
 		want := &Style{
 			Level: map[slog.Level]LevelStyle{
-				slog.LevelDebug: {Text: "DBG", Color: NewColor(48, 2, 95, 95, 255, Bold, FgHiWhite), Width: 5},
-				slog.LevelInfo:  {Text: "INF", Color: NewColor(48, 2, 95, 255, 215, Bold, FgHiBlack), Width: 5},
-				slog.LevelWarn:  {Text: "WRN", Color: NewColor(48, 2, 215, 255, 135, Bold, FgHiBlack), Width: 5},
-				slog.LevelError: {Text: "ERR", Color: NewColor(48, 2, 255, 95, 135, Bold, FgHiWhite), Width: 5},
+				slog.LevelDebug: {Text: "DBG", Color: NewColor(48, 2, 95, 95, 255, Bold), Width: 5},
+				slog.LevelInfo:  {Text: "INF", Color: NewColor(48, 2, 95, 255, 215, Bold), Width: 5},
+				slog.LevelWarn:  {Text: "WRN", Color: NewColor(48, 2, 215, 255, 135, Bold), Width: 5},
+				slog.LevelError: {Text: "ERR", Color: NewColor(48, 2, 255, 95, 135, Bold), Width: 5},
 			},
 			Label: LabelStyle{
 				Color: NewColor(FgHiBlack, Bold),
