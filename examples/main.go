@@ -40,6 +40,8 @@ func main() {
 	s3 := log.Style3()
 	s4 := log.Style4()
 
+	println()
+
 	// Style0: No colors
 	h = log.NewCLIHandler(os.Stdout,
 		withLevel,
@@ -249,4 +251,5 @@ func main() {
 	l.Info(infMsg)
 	l.Warn(wrnMsg)
 	l.Error(errMsg)
+	println()
 }
