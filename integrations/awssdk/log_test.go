@@ -78,7 +78,7 @@ func TestNewLogger(t *testing.T) {
 
 func TestLogger_Logf(t *testing.T) {
 	var buf bytes.Buffer
-	var fn = func(groups []string, a slog.Attr) slog.Attr {
+	var fn = func(_ []string, a slog.Attr) slog.Attr {
 		if a.Key == slog.TimeKey {
 			a.Value = slog.StringValue("2025-01-01T00:00:00Z")
 		}
