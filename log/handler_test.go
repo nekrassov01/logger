@@ -769,7 +769,7 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 			args: args{
 				attrs: []slog.Attr{slog.String("secret", "password")},
 			},
-			check: func(t *testing.T, origin *CLIHandler, got slog.Handler) {
+			check: func(t *testing.T, _ *CLIHandler, got slog.Handler) {
 				h2, ok := got.(*CLIHandler)
 				if !ok {
 					t.Fatal("got not *CLIHandler")
@@ -798,7 +798,7 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 			args: args{
 				attrs: []slog.Attr{slog.String("new", "val")},
 			},
-			check: func(t *testing.T, origin *CLIHandler, got slog.Handler) {
+			check: func(t *testing.T, _ *CLIHandler, got slog.Handler) {
 				h2, ok := got.(*CLIHandler)
 				if !ok {
 					t.Fatal("got not *CLIHandler")
@@ -821,7 +821,7 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 			args: args{
 				attrs: []slog.Attr{slog.String("key", "val")},
 			},
-			check: func(t *testing.T, origin *CLIHandler, got slog.Handler) {
+			check: func(t *testing.T, _ *CLIHandler, got slog.Handler) {
 				h2, ok := got.(*CLIHandler)
 				if !ok {
 					t.Fatal("got not *CLIHandler")
@@ -843,7 +843,7 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 			args: args{
 				attrs: []slog.Attr{slog.String("", "val")},
 			},
-			check: func(t *testing.T, origin *CLIHandler, got slog.Handler) {
+			check: func(t *testing.T, _ *CLIHandler, got slog.Handler) {
 				h2, ok := got.(*CLIHandler)
 				if !ok {
 					t.Fatal("got not *CLIHandler")
@@ -862,7 +862,7 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 			args: args{
 				attrs: []slog.Attr{slog.String("", "v1"), slog.String("", "v2")},
 			},
-			check: func(t *testing.T, origin *CLIHandler, got slog.Handler) {
+			check: func(t *testing.T, _ *CLIHandler, got slog.Handler) {
 				h2, ok := got.(*CLIHandler)
 				if !ok {
 					t.Fatal("got not *CLIHandler")
@@ -923,7 +923,7 @@ func TestCLIHandler_WithGroup(t *testing.T) {
 		name   string
 		fields fields
 		args   args
-		check  func(origin *CLIHandler, got slog.Handler) error
+		check  func(_ *CLIHandler, got slog.Handler) error
 	}{
 		{
 			name: "empty name",
@@ -978,7 +978,7 @@ func TestCLIHandler_WithGroup(t *testing.T) {
 			args: args{
 				name: "group2",
 			},
-			check: func(origin *CLIHandler, got slog.Handler) error {
+			check: func(_ *CLIHandler, got slog.Handler) error {
 				h2, ok := got.(*CLIHandler)
 				if !ok {
 					t.Error("got not *CLIHandler")
@@ -1462,7 +1462,7 @@ func Test_setColorable(t *testing.T) {
 		{
 			name: "file writer",
 			w:    os.Stdout,
-			check: func(t *testing.T, input, got io.Writer) {
+			check: func(t *testing.T, _ io.Writer, got io.Writer) {
 				if got == nil {
 					t.Fatal("got nil")
 				}

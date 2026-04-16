@@ -1,5 +1,6 @@
 GOBIN ?= $(shell go env GOPATH)/bin
-VERSION := $$(make -s show-version)
+
+VERSION := $$(make version)
 
 HAS_LINT := $(shell command -v $(GOBIN)/golangci-lint 2> /dev/null)
 HAS_VULN := $(shell command -v $(GOBIN)/govulncheck 2> /dev/null)
@@ -11,7 +12,7 @@ BIN_BUMP := github.com/x-motemen/gobump/cmd/gobump@latest
 
 export GO111MODULE=on
 
-.PHONY: deps deps-lint deps-vuln deps-bump clean check test cover bench lint vuln show-version check-git publish
+.PHONY: deps deps-lint deps-vuln deps-bump clean build check test cover bench lint vuln version check-git check-branch bump
 
 # -------
 #  deps
@@ -34,13 +35,14 @@ ifndef HAS_BUMP
 	go install $(BIN_BUMP)
 endif
 
-# ----------
-#  cleanup
-# ----------
+# --------
+#  utils
+# --------
 
 clean:
 	go clean
-	rm -f cover.out cover.html cpu.prof mem.prof benchmarks.test
+	rm -f $(NAME) coverage.out coverage.html cpu.prof mem.prof $(NAME).test
+	@cd benchmarks && $(MAKE) clean
 
 # --------
 #  check
@@ -49,13 +51,13 @@ clean:
 check: test cover bench lint vuln
 
 test:
-	go test -race -cover -v -coverprofile=cover.out -covermode=atomic $$(go list ./... | grep -vE "examples|benchmarks")
+	go test -race -cover -v -coverprofile coverage.out -covermode atomic ./...
 
 cover:
-	go tool cover -html=cover.out -o cover.html
+	go tool cover -html coverage.out -o coverage.html
 
 bench:
-	go test -bench . -benchmem -count 5 -benchtime=10000x -cpuprofile=cpu.prof -memprofile=mem.prof ./benchmarks/
+	@cd benchmarks && $(MAKE) bench
 
 lint: deps-lint
 	golangci-lint run --verbose ./...
@@ -63,28 +65,24 @@ lint: deps-lint
 vuln: deps-vuln
 	govulncheck -test -show verbose ./...
 
-example:
-	go run ./examples/
-
 # ----------
-#  release
+#  version
 # ----------
 
-show-version: deps-bump
-	gobump show -r $(CMD_PATH)
+version: deps-bump
+	@echo $(shell gobump show -r .)
 
 check-git:
 ifneq ($(shell git status --porcelain),)
 	$(error git workspace is dirty)
 endif
-ifneq ($(shell git rev-parse --abbrev-ref HEAD),main)
-	$(error current branch is not main)
+
+check-branch:
+ifndef branch
+	$(error branch is undefined)
 endif
 
-publish: deps-bump check-git
+bump: check-branch deps-bump
 	gobump up -w .
 	git commit -am "bump up version to $(VERSION)"
-	git tag "v$(VERSION)"
-	git push origin main
-	git push origin "refs/tags/v$(VERSION)"
-
+	git push origin $(branch)
