@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.1.1](https://github.com/nekrassov01/logger/compare/v0.1.0...v0.1.1) - 2026-04-16
+- Fix typo by @nekrassov01 in https://github.com/nekrassov01/logger/pull/4
+
 ## [v0.1.0](https://github.com/nekrassov01/logger/compare/v0.0.9...v0.1.0) - 2026-04-16
 - Update for common settings for gh-infra by @nekrassov01 in https://github.com/nekrassov01/logger/pull/1
 
