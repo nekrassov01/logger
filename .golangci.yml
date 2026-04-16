@@ -1,12 +1,25 @@
 version: "2"
 linters:
-  default: standard
+  default: fast
   enable:
+    - errcheck
     - gosec
-    - misspell
     - revive
-  settings:
-    revive:
-      rules:
-        - name: package-comments
-          disabled: true
+  disable:
+    - cyclop
+    - dupl
+    - depguard
+    - funlen
+    - gocognit
+    - lll
+    - maintidx
+    - mnd
+    - nestif
+    - nlreturn
+    - testpackage
+    - wsl
+  exclusions:
+    rules:
+      - linters:
+          - revive
+        text: "package-comments"
