@@ -3,9 +3,9 @@ module github.com/nekrassov01/logger
 go 1.25.5
 
 require (
-	github.com/aws/smithy-go v1.24.0
+	github.com/aws/smithy-go v1.25.0
 	github.com/mattn/go-colorable v0.1.14
-	github.com/mattn/go-runewidth v0.0.19
+	github.com/mattn/go-runewidth v0.0.23
 )
 
 require (
