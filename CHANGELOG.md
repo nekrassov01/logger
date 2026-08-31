@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.1.2](https://github.com/nekrassov01/logger/compare/v0.1.1...v0.1.2) - 2026-08-31
+
+- Update dependencies by @nekrassov01 in https://github.com/nekrassov01/logger/pull/15
+- Update repository settings by @nekrassov01 in https://github.com/nekrassov01/logger/pull/16
+
 ## [v0.1.1](https://github.com/nekrassov01/logger/compare/v0.1.0...v0.1.1) - 2026-04-16
 - Fix typo by @nekrassov01 in https://github.com/nekrassov01/logger/pull/4
 
