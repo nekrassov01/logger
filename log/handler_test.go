@@ -6,8 +6,10 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1017,6 +1019,106 @@ func TestCLIHandler_WithGroup(t *testing.T) {
 				if err := tt.check(h, got); err != nil {
 					t.Error(err)
 				}
+			}
+		})
+	}
+}
+
+func TestCLIHandler_caller(t *testing.T) {
+	pc, file, line, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	shortStyle := Style0()
+	shortStyle.Caller.Fullpath = false
+	fullStyle := Style0()
+	fullStyle.Caller.Fullpath = true
+	cached := []byte("cached.go:99")
+	tests := []struct {
+		name       string
+		h          *CLIHandler
+		pc         uintptr
+		want       []byte
+		wantOK     bool
+		wantCached bool
+	}{
+		{
+			name: "disabled",
+			h: &CLIHandler{
+				pcCache: make(map[uintptr][]byte),
+				style:   shortStyle,
+			},
+			pc: pc,
+		},
+		{
+			name: "zero pc",
+			h: &CLIHandler{
+				pcCache:   make(map[uintptr][]byte),
+				hasCaller: true,
+				style:     shortStyle,
+			},
+		},
+		{
+			name: "cache hit",
+			h: &CLIHandler{
+				pcCache:   map[uintptr][]byte{12345: cached},
+				hasCaller: true,
+				style:     shortStyle,
+			},
+			pc:         12345,
+			want:       cached,
+			wantOK:     true,
+			wantCached: true,
+		},
+		{
+			name: "short path",
+			h: &CLIHandler{
+				pcCache:   make(map[uintptr][]byte),
+				hasCaller: true,
+				style:     shortStyle,
+			},
+			pc:         pc,
+			want:       []byte(filepath.Base(file) + ":" + strconv.Itoa(line)),
+			wantOK:     true,
+			wantCached: true,
+		},
+		{
+			name: "full path",
+			h: &CLIHandler{
+				pcCache:   make(map[uintptr][]byte),
+				hasCaller: true,
+				style:     fullStyle,
+			},
+			pc:         pc,
+			want:       []byte(file + ":" + strconv.Itoa(line)),
+			wantOK:     true,
+			wantCached: true,
+		},
+		{
+			name: "unknown pc",
+			h: &CLIHandler{
+				pcCache:   make(map[uintptr][]byte),
+				hasCaller: true,
+				style:     shortStyle,
+			},
+			pc: ^uintptr(0),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, gotOK := tt.h.caller(tt.pc)
+			if gotOK != tt.wantOK {
+				t.Errorf("caller() ok = %v, want %v", gotOK, tt.wantOK)
+			}
+			if !bytes.Equal(got, tt.want) {
+				t.Errorf("caller() = %q, want %q", got, tt.want)
+			}
+			gotCached, gotCachedOK := tt.h.pcCache[tt.pc]
+			if gotCachedOK != tt.wantCached {
+				t.Errorf("pcCache contains pc = %v, want %v", gotCachedOK, tt.wantCached)
+			}
+			if gotCachedOK && !bytes.Equal(gotCached, tt.want) {
+				t.Errorf("pcCache[pc] = %q, want %q", gotCached, tt.want)
 			}
 		})
 	}
