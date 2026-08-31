@@ -3,10 +3,15 @@ coverage:
     - coverage-ubuntu-latest
     - coverage-macos-latest
     - coverage-windows-latest
+  exclude:
+    - "examples/**"
+    - "benchmarks/**"
 codeToTestRatio:
   code:
     - "**/*.go"
     - "!**/*_test.go"
+    - "!examples/**"
+    - "!benchmarks/**"
   test:
     - "**/*_test.go"
 testExecutionTime:
