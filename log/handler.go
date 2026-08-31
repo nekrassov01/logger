@@ -136,7 +136,6 @@ func (h *CLIHandler) Handle(_ context.Context, r slog.Record) error {
 
 	level := h.style.Level
 	label := h.style.Label
-	caller := h.style.Caller
 	attr := h.style.Attr
 
 	// Determine log level text and color
@@ -182,25 +181,8 @@ func (h *CLIHandler) Handle(_ context.Context, r slog.Record) error {
 	}
 
 	// Add caller
-	if h.hasCaller && r.PC != 0 {
-		if b, ok := h.pcCache[r.PC]; ok {
-			h.writeCaller(buf, b, h.style)
-		} else {
-			if f := runtime.FuncForPC(r.PC); f != nil {
-				file, line := f.FileLine(r.PC)
-				path := file
-				if !caller.Fullpath {
-					path = filepath.Base(file)
-				}
-				if file != "" {
-					b = append(b, path...)
-					b = append(b, ':')
-					b = strconv.AppendInt(b, int64(line), 10)
-					h.pcCache[r.PC] = b
-					h.writeCaller(buf, b, h.style)
-				}
-			}
-		}
+	if b, ok := h.caller(r.PC); ok {
+		h.writeCaller(buf, b, h.style)
 	}
 
 	// Add prefix
@@ -334,6 +316,33 @@ func (h *CLIHandler) WithGroup(name string) slog.Handler {
 	h2.attrsCache = nil
 	h2.groupsCache = append([]string(nil), h2.groups...)
 	return &h2
+}
+
+// caller returns the cached or resolved caller for pc.
+func (h *CLIHandler) caller(pc uintptr) ([]byte, bool) {
+	if !h.hasCaller || pc == 0 {
+		return nil, false
+	}
+	if b, ok := h.pcCache[pc]; ok {
+		return b, true
+	}
+	f := runtime.FuncForPC(pc)
+	if f == nil {
+		return nil, false
+	}
+	file, line := f.FileLine(pc)
+	if file == "" {
+		return nil, false
+	}
+	path := file
+	if !h.style.Caller.Fullpath {
+		path = filepath.Base(file)
+	}
+	b := append([]byte(nil), path...)
+	b = append(b, ':')
+	b = strconv.AppendInt(b, int64(line), 10)
+	h.pcCache[pc] = b
+	return b, true
 }
 
 // writeCaller writes the caller information to buf.
