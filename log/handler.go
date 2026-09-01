@@ -3,7 +3,6 @@ package log
 import (
 	"bytes"
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -33,11 +32,9 @@ type CLIHandler struct {
 	mu          *sync.Mutex
 	level       slog.Leveler
 	prefix      string
-	attrs       []slog.Attr
 	attrsCache  []byte
-	attrHandler func(a slog.Attr) slog.Attr
+	attrHandler func([]string, slog.Attr) slog.Attr
 	groups      []string
-	groupsCache []string
 	pcCache     map[uintptr][]byte
 	hasCaller   bool
 	hasTime     bool
@@ -103,8 +100,13 @@ func WithTimeFormat(layout string) CLIHandlerOption {
 	}
 }
 
-// WithAttrHandler returns a CLIHandlerOption that sets the attribute handler function.
-func WithAttrHandler(fn func(a slog.Attr) slog.Attr) CLIHandlerOption {
+// WithAttrHandler returns a CLIHandlerOption that applies fn to each non-group attribute.
+// The built-in level and message attributes are included without a group, and
+// time is included when enabled and non-zero. Caller information is not an
+// attribute and is not passed to fn. Attribute values are resolved before and
+// after fn is called. Returning a zero attribute removes it. The function must
+// not retain or modify the groups slice.
+func WithAttrHandler(fn func(groups []string, attr slog.Attr) slog.Attr) CLIHandlerOption {
 	return func(c *CLIHandler) {
 		if fn != nil {
 			c.attrHandler = fn
@@ -134,24 +136,12 @@ func (h *CLIHandler) Handle(_ context.Context, r slog.Record) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	level := h.style.Level
-	label := h.style.Label
-	attr := h.style.Attr
-
-	// Determine log level text and color
-	var ls LevelStyle
-	switch {
-	case r.Level == slog.LevelDebug:
-		ls = level[slog.LevelDebug]
-	case r.Level == slog.LevelInfo:
-		ls = level[slog.LevelInfo]
-	case r.Level == slog.LevelWarn:
-		ls = level[slog.LevelWarn]
-	case r.Level >= slog.LevelError:
-		ls = level[slog.LevelError]
-	default:
-		return errors.New("unknown log level")
+	var timeAttr slog.Attr
+	if h.hasTime && !r.Time.IsZero() {
+		timeAttr = h.prepareAttr(nil, slog.Time(slog.TimeKey, r.Time))
 	}
+	levelAttr := h.prepareAttr(nil, builtInLevelAttr(r.Level))
+	messageAttr := h.prepareAttr(nil, slog.String(slog.MessageKey, r.Message))
 
 	// Get buffer from pool for log message construction
 	buf := bufPool.Get().(*bytes.Buffer)
@@ -160,96 +150,42 @@ func (h *CLIHandler) Handle(_ context.Context, r slog.Record) error {
 		bufPool.Put(buf)
 	}()
 
-	// Add log level
-	if ls.Text != "" {
-		if ls.Prefix.Text != "" {
-			ls.Prefix.Color.WriteString(buf, ls.Prefix.Text)
-		}
-		if ls.Width > 0 {
-			tmp := bufPool.Get().(*bytes.Buffer)
-			align(tmp, ls.Text, ls.Width)
-			ls.Color.WriteBytes(buf, tmp.Bytes())
-			tmp.Reset()
-			bufPool.Put(tmp)
-		} else {
-			ls.Color.WriteString(buf, ls.Text)
-		}
-		if ls.Suffix.Text != "" {
-			ls.Suffix.Color.WriteString(buf, ls.Suffix.Text)
-		}
-		buf.WriteString(" ")
+	wrote := false
+	if h.writeLevelAttr(buf, levelAttr, wrote) {
+		wrote = true
 	}
 
-	// Add caller
 	if b, ok := h.caller(r.PC); ok {
-		h.writeCaller(buf, b, h.style)
+		h.writeCallerPart(buf, b, h.style, wrote)
+		wrote = true
 	}
 
-	// Add prefix
-	if h.prefix != "" {
-		if label.Prefix.Text != "" {
-			label.Prefix.Color.WriteString(buf, label.Prefix.Text)
-		}
-		if label.Width > 0 {
-			tmp := bufPool.Get().(*bytes.Buffer)
-			align(tmp, h.prefix, label.Width)
-			label.Color.WriteBytes(buf, tmp.Bytes())
-			tmp.Reset()
-			bufPool.Put(tmp)
-		} else {
-			label.Color.WriteString(buf, h.prefix)
-		}
-		if label.Suffix.Text != "" {
-			label.Suffix.Color.WriteString(buf, label.Suffix.Text)
-		}
-		buf.WriteString(" ")
+	if h.writeLabel(buf, h.prefix, h.style, wrote) {
+		wrote = true
 	}
 
-	// Add message
-	buf.WriteString(r.Message)
-
-	// Add time
-	if h.hasTime {
-		buf.WriteString(" ")
-		attr.KeyColor.WriteString(buf, "time")
-		attr.KeyColor.WriteString(buf, attr.Separator)
-		var b [64]byte
-		attr.ValueColor.WriteBytes(buf, r.Time.AppendFormat(b[:0], h.timeLayout))
+	if h.writeMessageAttr(buf, messageAttr, wrote) {
+		wrote = true
+	}
+	if h.writePreparedAttrPart(buf, timeAttr, nil, h.style, h.timeLayout, wrote) {
+		wrote = true
 	}
 
 	// Add attributes
 	var groups []string
-	if h.groupsCache != nil {
-		groups = h.groupsCache[:0]
-	} else {
-		groups = make([]string, 0, len(h.groups))
-	}
-	if len(h.groups) > 0 {
+	if r.NumAttrs() > 0 {
+		groups = make([]string, 0, len(h.groups)+8)
 		groups = append(groups, h.groups...)
 	}
-	if len(h.attrsCache) > 0 {
-		buf.Write(h.attrsCache)
-	} else {
-		for _, attr := range h.attrs {
-			if attr.Key == "" {
-				continue
-			}
-			buf.WriteString(" ")
-			h.writeAttr(buf, attr, groups, h.style, h.timeLayout)
-		}
+	if writeAttrsCache(buf, h.attrsCache, wrote) {
+		wrote = true
 	}
 	r.Attrs(func(attr slog.Attr) bool {
-		if attr.Key == "" {
-			return true
+		if h.writeAttrPart(buf, attr, groups, h.style, h.timeLayout, wrote) {
+			wrote = true
 		}
-		if h.attrHandler != nil {
-			attr = h.attrHandler(attr)
-		}
-		buf.WriteString(" ")
-		h.writeAttr(buf, attr, groups, h.style, h.timeLayout)
 		return true
 	})
-
 	// Write to output
 	buf.WriteString("\n")
 	_, err := buf.WriteTo(h.w)
@@ -262,31 +198,19 @@ func (h *CLIHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		return h
 	}
 	h2 := *h
-	a := make([]slog.Attr, 0, len(h.attrs)+len(attrs))
-	if h2.attrHandler == nil {
-		a = append(a, h.attrs...)
-		a = append(a, attrs...)
-	} else {
-		for _, attr := range h.attrs {
-			a = append(a, h2.attrHandler(attr))
-		}
-		for _, attr := range attrs {
-			a = append(a, h2.attrHandler(attr))
-		}
-	}
-	h2.attrs = a
 	buf := bufPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	groups := make([]string, 0, len(h2.groups))
+	buf.Write(h.attrsCache)
+	groups := make([]string, 0, len(h2.groups)+8)
 	if len(h2.groups) > 0 {
 		groups = append(groups, h2.groups...)
 	}
-	for _, attr := range h2.attrs {
-		if attr.Key == "" {
-			continue
-		}
+	for _, attr := range attrs {
+		pos := buf.Len()
 		buf.WriteString(" ")
-		h2.writeAttr(buf, attr, groups, h2.style, h2.timeLayout)
+		if !h2.writeAttr(buf, attr, groups, h2.style, h2.timeLayout) {
+			buf.Truncate(pos)
+		}
 	}
 	if buf.Len() > 0 {
 		h2.attrsCache = make([]byte, buf.Len())
@@ -296,11 +220,6 @@ func (h *CLIHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	}
 	buf.Reset()
 	bufPool.Put(buf)
-	if len(h2.groups) > 0 {
-		h2.groupsCache = append([]string(nil), h2.groups...)
-	} else {
-		h2.groupsCache = nil
-	}
 	return &h2
 }
 
@@ -313,8 +232,6 @@ func (h *CLIHandler) WithGroup(name string) slog.Handler {
 	h2.groups = make([]string, len(h.groups)+1)
 	copy(h2.groups, h.groups)
 	h2.groups[len(h.groups)] = name
-	h2.attrsCache = nil
-	h2.groupsCache = append([]string(nil), h2.groups...)
 	return &h2
 }
 
@@ -345,6 +262,82 @@ func (h *CLIHandler) caller(pc uintptr) ([]byte, bool) {
 	return b, true
 }
 
+// writeLevelAttr writes a level using its CLI style or as a regular changed attribute.
+func (h *CLIHandler) writeLevelAttr(buf *bytes.Buffer, attr slog.Attr, separated bool) bool {
+	if attr.Key == slog.LevelKey && attr.Value.Kind() == slog.KindAny {
+		if level, ok := attr.Value.Any().(slog.Level); ok {
+			style := levelStyle(h.style.Level, level)
+			if style.Text == "" {
+				return false
+			}
+			writeSeparator(buf, separated)
+			writeLevel(buf, style)
+			return true
+		}
+	}
+	return h.writePreparedAttrPart(buf, attr, nil, h.style, h.timeLayout, separated)
+}
+
+// writeLevel writes a level with its configured CLI style.
+func writeLevel(buf *bytes.Buffer, style LevelStyle) {
+	if style.Prefix.Text != "" {
+		style.Prefix.Color.WriteString(buf, style.Prefix.Text)
+	}
+	if style.Width > 0 {
+		tmp := bufPool.Get().(*bytes.Buffer)
+		align(tmp, style.Text, style.Width)
+		style.Color.WriteBytes(buf, tmp.Bytes())
+		tmp.Reset()
+		bufPool.Put(tmp)
+	} else {
+		style.Color.WriteString(buf, style.Text)
+	}
+	if style.Suffix.Text != "" {
+		style.Suffix.Color.WriteString(buf, style.Suffix.Text)
+	}
+}
+
+// levelStyle returns the CLI style for level's range.
+func levelStyle(styles map[slog.Level]LevelStyle, level slog.Level) LevelStyle {
+	switch {
+	case level < slog.LevelInfo:
+		return styles[slog.LevelDebug]
+	case level < slog.LevelWarn:
+		return styles[slog.LevelInfo]
+	case level < slog.LevelError:
+		return styles[slog.LevelWarn]
+	default:
+		return styles[slog.LevelError]
+	}
+}
+
+// builtInLevelAttr returns a pre-boxed attribute for standard levels.
+func builtInLevelAttr(level slog.Level) slog.Attr {
+	return slog.Any(slog.LevelKey, level)
+}
+
+// formatSource formats source as a file and line pair.
+func formatSource(source *slog.Source, fullpath bool) []byte {
+	return appendSource(nil, source, fullpath)
+}
+
+// appendSource appends source as a file and line pair.
+func appendSource(b []byte, source *slog.Source, fullpath bool) []byte {
+	path := source.File
+	if path != "" && !fullpath {
+		path = filepath.Base(path)
+	}
+	b = append(b, path...)
+	b = append(b, ':')
+	return strconv.AppendInt(b, int64(source.Line), 10)
+}
+
+// writeCallerPart writes caller information as a separated output part.
+func (h *CLIHandler) writeCallerPart(buf *bytes.Buffer, b []byte, style *Style, separated bool) {
+	writeSeparator(buf, separated)
+	h.writeCaller(buf, b, style)
+}
+
 // writeCaller writes the caller information to buf.
 func (h *CLIHandler) writeCaller(buf *bytes.Buffer, b []byte, style *Style) {
 	c := style.Caller
@@ -355,43 +348,227 @@ func (h *CLIHandler) writeCaller(buf *bytes.Buffer, b []byte, style *Style) {
 	if c.Suffix.Text != "" {
 		c.Suffix.Color.WriteString(buf, c.Suffix.Text)
 	}
-	buf.WriteString(" ")
 }
 
-// writeAttr writes the attribute to buf, handling groups recursively.
-func (h *CLIHandler) writeAttr(buf *bytes.Buffer, attr slog.Attr, groups []string, style *Style, timeLayout string) {
-	v := attr.Value
-	if groups == nil {
-		groups = make([]string, 0, 8)
+// writeLabel writes the configured label as a separated output part.
+func (h *CLIHandler) writeLabel(buf *bytes.Buffer, label string, style *Style, separated bool) bool {
+	if label == "" {
+		return false
 	}
+	writeSeparator(buf, separated)
+	s := style.Label
+	if s.Prefix.Text != "" {
+		s.Prefix.Color.WriteString(buf, s.Prefix.Text)
+	}
+	if s.Width > 0 {
+		tmp := bufPool.Get().(*bytes.Buffer)
+		align(tmp, label, s.Width)
+		s.Color.WriteBytes(buf, tmp.Bytes())
+		tmp.Reset()
+		bufPool.Put(tmp)
+	} else {
+		s.Color.WriteString(buf, label)
+	}
+	if s.Suffix.Text != "" {
+		s.Suffix.Color.WriteString(buf, s.Suffix.Text)
+	}
+	return true
+}
 
+// writeMessageAttr writes a message as plain CLI text or as a regular changed attribute.
+func (h *CLIHandler) writeMessageAttr(buf *bytes.Buffer, attr slog.Attr, separated bool) bool {
+	if attr.Key == slog.MessageKey && attr.Value.Kind() == slog.KindString {
+		writeSeparator(buf, separated)
+		buf.WriteString(attr.Value.String())
+		return true
+	}
+	return h.writePreparedAttrPart(buf, attr, nil, h.style, h.timeLayout, separated)
+}
+
+// writeSeparator writes a space when an output part precedes the next part.
+func writeSeparator(buf *bytes.Buffer, separated bool) {
+	if separated {
+		buf.WriteString(" ")
+	}
+}
+
+// writeAttrsCache writes cached attributes as a separated output part.
+func writeAttrsCache(buf *bytes.Buffer, attrs []byte, separated bool) bool {
+	if len(attrs) == 0 {
+		return false
+	}
+	if attrs[0] == ' ' {
+		if separated {
+			buf.Write(attrs)
+		} else {
+			buf.Write(attrs[1:])
+		}
+		return true
+	}
+	writeSeparator(buf, separated)
+	buf.Write(attrs)
+	return true
+}
+
+// writeAttrPart handles and writes an attribute as a separated output part.
+func (h *CLIHandler) writeAttrPart(buf *bytes.Buffer, attr slog.Attr, groups []string, style *Style, timeLayout string, separated bool) bool {
+	pos := buf.Len()
+	writeSeparator(buf, separated)
+	if h.writeAttr(buf, attr, groups, style, timeLayout) {
+		return true
+	}
+	buf.Truncate(pos)
+	return false
+}
+
+// writePreparedAttrPart writes a prepared attribute as a separated output part.
+func (h *CLIHandler) writePreparedAttrPart(buf *bytes.Buffer, attr slog.Attr, groups []string, style *Style, timeLayout string, separated bool) bool {
+	pos := buf.Len()
+	writeSeparator(buf, separated)
+	if h.writePreparedAttr(buf, attr, groups, style, timeLayout) {
+		return true
+	}
+	buf.Truncate(pos)
+	return false
+}
+
+// writeAttr writes the attribute to buf and reports whether it wrote a value.
+func (h *CLIHandler) writeAttr(buf *bytes.Buffer, attr slog.Attr, groups []string, style *Style, timeLayout string) bool {
+	kind := attr.Value.Kind()
+	if kind == slog.KindLogValuer {
+		attr.Value = resolveLogValuer(attr.Value)
+		kind = attr.Value.Kind()
+	}
+	if h.attrHandler != nil && kind != slog.KindGroup {
+		attr = h.attrHandler(groups, attr)
+		kind = attr.Value.Kind()
+		if kind == slog.KindLogValuer {
+			attr.Value = resolveLogValuer(attr.Value)
+			kind = attr.Value.Kind()
+		}
+	}
+	v := attr.Value
+	if kind == slog.KindAny {
+		var ok bool
+		attr, ok = prepareAnyAttr(attr, style.Caller.Fullpath)
+		if !ok {
+			return false
+		}
+		v = attr.Value
+		kind = v.Kind()
+	}
+	if kind == slog.KindGroup {
+		if groups == nil {
+			groups = make([]string, 0, 8)
+		}
+		if attr.Key != "" {
+			groups = append(groups, attr.Key)
+		}
+		return h.writeGroup(buf, v.Group(), groups, style, timeLayout)
+	}
+	writeAttrValue(buf, attr, kind, groups, style, timeLayout)
+	return true
+}
+
+// prepareAttr applies the attribute handler recursively before rendering.
+func (h *CLIHandler) prepareAttr(groups []string, attr slog.Attr) slog.Attr {
+	attr = h.applyAttrHandler(groups, attr)
+	if attr.Value.Kind() != slog.KindGroup {
+		return attr
+	}
+	childGroups := groups
+	if attr.Key != "" {
+		childGroups = append(childGroups, attr.Key)
+	}
+	attrs := attr.Value.Group()
+	prepared := make([]slog.Attr, 0, len(attrs))
+	for _, child := range attrs {
+		child = h.prepareAttr(childGroups, child)
+		if !child.Equal(slog.Attr{}) {
+			prepared = append(prepared, child)
+		}
+	}
+	if len(prepared) == 0 {
+		return slog.Attr{}
+	}
+	attr.Value = slog.GroupValue(prepared...)
+	return attr
+}
+
+// applyAttrHandler resolves attr and applies the configured attribute handler.
+func (h *CLIHandler) applyAttrHandler(groups []string, attr slog.Attr) slog.Attr {
+	kind := attr.Value.Kind()
+	if kind == slog.KindLogValuer {
+		attr.Value = resolveLogValuer(attr.Value)
+		kind = attr.Value.Kind()
+	}
+	if h.attrHandler != nil && kind != slog.KindGroup {
+		attr = h.attrHandler(groups, attr)
+		if attr.Value.Kind() == slog.KindLogValuer {
+			attr.Value = resolveLogValuer(attr.Value)
+		}
+	}
+	return attr
+}
+
+// resolveLogValuer resolves a value known to implement slog.LogValuer.
+func resolveLogValuer(value slog.Value) slog.Value {
+	return value.Resolve()
+}
+
+// writePreparedAttr writes an attribute whose descendants have been prepared.
+func (h *CLIHandler) writePreparedAttr(buf *bytes.Buffer, attr slog.Attr, groups []string, style *Style, timeLayout string) bool {
+	v := attr.Value
+	kind := v.Kind()
+	if kind == slog.KindAny {
+		var ok bool
+		attr, ok = prepareAnyAttr(attr, style.Caller.Fullpath)
+		if !ok {
+			return false
+		}
+		v = attr.Value
+		kind = v.Kind()
+	}
+	if kind == slog.KindGroup {
+		if groups == nil {
+			groups = make([]string, 0, 8)
+		}
+		if attr.Key != "" {
+			groups = append(groups, attr.Key)
+		}
+		return h.writePreparedGroup(buf, v.Group(), groups, style, timeLayout)
+	}
+	writeAttrValue(buf, attr, kind, groups, style, timeLayout)
+	return true
+}
+
+// prepareAnyAttr converts a special Any value before it is rendered.
+func prepareAnyAttr(attr slog.Attr, fullpath bool) (slog.Attr, bool) {
+	value := attr.Value.Any()
+	if value == nil && attr.Key == "" {
+		return slog.Attr{}, false
+	}
+	if source, ok := value.(*slog.Source); ok {
+		return prepareSourceAttr(attr, source, fullpath)
+	}
+	return attr, true
+}
+
+// prepareSourceAttr converts a non-empty source to its CLI representation.
+func prepareSourceAttr(attr slog.Attr, source *slog.Source, fullpath bool) (slog.Attr, bool) {
+	if source == nil || *source == (slog.Source{}) {
+		return slog.Attr{}, false
+	}
+	attr.Value = slog.StringValue(string(formatSource(source, fullpath)))
+	return attr, true
+}
+
+// writeAttrValue writes a non-group attribute value.
+func writeAttrValue(buf *bytes.Buffer, attr slog.Attr, kind slog.Kind, groups []string, style *Style, timeLayout string) {
+	v := attr.Value
 	kc := style.Attr.KeyColor
 	vc := style.Attr.ValueColor
 	sp := style.Attr.Separator
-
-	if v.Kind() == slog.KindGroup {
-		if len(groups) < cap(groups) {
-			groups = groups[:len(groups)+1]
-			groups[len(groups)-1] = attr.Key
-			attrs := v.Group()
-			for i, attr := range attrs {
-				h.writeAttr(buf, attr, groups, style, timeLayout)
-				if i < len(attrs)-1 {
-					buf.WriteString(" ")
-				}
-			}
-			return
-		}
-		groups := append(groups, attr.Key)
-		attrs := v.Group()
-		for i, attr := range attrs {
-			h.writeAttr(buf, attr, groups, style, timeLayout)
-			if i < len(attrs)-1 {
-				buf.WriteString(" ")
-			}
-		}
-		return
-	}
 
 	if len(groups) > 0 {
 		for i, key := range groups {
@@ -405,7 +582,7 @@ func (h *CLIHandler) writeAttr(buf *bytes.Buffer, attr slog.Attr, groups []strin
 	kc.WriteString(buf, attr.Key)
 	kc.WriteString(buf, sp)
 
-	switch v.Kind() {
+	switch kind {
 	case slog.KindString:
 		s := v.String()
 		if strings.ContainsAny(s, " \t\n") || strings.ContainsAny(s, "\\\"") {
@@ -436,6 +613,40 @@ func (h *CLIHandler) writeAttr(buf *bytes.Buffer, attr slog.Attr, groups []strin
 	default:
 		vc.WriteString(buf, v.String())
 	}
+}
+
+// writeGroup writes group attributes and reports whether it wrote a value.
+func (h *CLIHandler) writeGroup(buf *bytes.Buffer, attrs []slog.Attr, groups []string, style *Style, timeLayout string) bool {
+	wrote := false
+	for _, attr := range attrs {
+		pos := buf.Len()
+		if wrote {
+			buf.WriteString(" ")
+		}
+		if h.writeAttr(buf, attr, groups, style, timeLayout) {
+			wrote = true
+			continue
+		}
+		buf.Truncate(pos)
+	}
+	return wrote
+}
+
+// writePreparedGroup writes prepared group attributes and reports whether it wrote a value.
+func (h *CLIHandler) writePreparedGroup(buf *bytes.Buffer, attrs []slog.Attr, groups []string, style *Style, timeLayout string) bool {
+	wrote := false
+	for _, attr := range attrs {
+		pos := buf.Len()
+		if wrote {
+			buf.WriteString(" ")
+		}
+		if h.writePreparedAttr(buf, attr, groups, style, timeLayout) {
+			wrote = true
+			continue
+		}
+		buf.Truncate(pos)
+	}
+	return wrote
 }
 
 // align centers the string s in a field of width w using spaces.

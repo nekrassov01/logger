@@ -9,7 +9,7 @@ import (
 	"github.com/nekrassov01/logger/log"
 )
 
-func attrHandler(a slog.Attr) slog.Attr {
+func attrHandler(_ []string, a slog.Attr) slog.Attr {
 	if a.Key == "password" {
 		return slog.Attr{
 			Key:   a.Key,
