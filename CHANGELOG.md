@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.1.3](https://github.com/nekrassov01/logger/compare/v0.1.2...v0.1.3) - 2026-09-01
+
+- Improve handler correctness and performance by @nekrassov01 in https://github.com/nekrassov01/logger/pull/17
+
 ## [v0.1.2](https://github.com/nekrassov01/logger/compare/v0.1.1...v0.1.2) - 2026-08-31
 
 - Update dependencies by @nekrassov01 in https://github.com/nekrassov01/logger/pull/15
