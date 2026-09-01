@@ -39,34 +39,33 @@ light
 [benchmarks/benchmark_test.go](./benchmarks/benchmark_test.go)
 
 ```text
-$ make bench
-go test -bench . -benchmem -count 5 -benchtime=10000x -cpuprofile=cpu.prof -memprofile=mem.prof ./benchmarks/
+$ go test -bench . -benchmem -count 5 -benchtime=100000x ./benchmarks/
 goos: darwin
 goarch: arm64
 pkg: github.com/nekrassov01/logger/benchmarks
 cpu: Apple M2
-BenchmarkCLIHandler_Basic-8                10000              1563 ns/op            2098 B/op          0 allocs/op
-BenchmarkCLIHandler_Basic-8                10000               952.3 ns/op          2098 B/op          0 allocs/op
-BenchmarkCLIHandler_Basic-8                10000               791.6 ns/op          2098 B/op          0 allocs/op
-BenchmarkCLIHandler_Basic-8                10000               766.9 ns/op          2098 B/op          0 allocs/op
-BenchmarkCLIHandler_Basic-8                10000               623.3 ns/op          2098 B/op          0 allocs/op
-BenchmarkCLIHandler_Basic_Parallel-8       10000               746.8 ns/op          2102 B/op          0 allocs/op
-BenchmarkCLIHandler_Basic_Parallel-8       10000               715.4 ns/op          2100 B/op          0 allocs/op
-BenchmarkCLIHandler_Basic_Parallel-8       10000               694.5 ns/op          2102 B/op          0 allocs/op
-BenchmarkCLIHandler_Basic_Parallel-8       10000               644.6 ns/op          2103 B/op          0 allocs/op
-BenchmarkCLIHandler_Basic_Parallel-8       10000               618.3 ns/op          2102 B/op          0 allocs/op
-BenchmarkCLIHandler_Attr-8                 10000              2318 ns/op            3630 B/op          8 allocs/op
-BenchmarkCLIHandler_Attr-8                 10000              2295 ns/op            3629 B/op          8 allocs/op
-BenchmarkCLIHandler_Attr-8                 10000              2218 ns/op            3629 B/op          8 allocs/op
-BenchmarkCLIHandler_Attr-8                 10000              2190 ns/op            3628 B/op          8 allocs/op
-BenchmarkCLIHandler_Attr-8                 10000              2148 ns/op            3629 B/op          8 allocs/op
-BenchmarkCLIHandler_Attr_Parallel-8        10000              2322 ns/op            2375 B/op          8 allocs/op
-BenchmarkCLIHandler_Attr_Parallel-8        10000              2312 ns/op            2374 B/op          8 allocs/op
-BenchmarkCLIHandler_Attr_Parallel-8        10000              2660 ns/op            2375 B/op          8 allocs/op
-BenchmarkCLIHandler_Attr_Parallel-8        10000              2570 ns/op            2373 B/op          8 allocs/op
-BenchmarkCLIHandler_Attr_Parallel-8        10000              2783 ns/op            2375 B/op          8 allocs/op
+BenchmarkCLIHandler_Basic-8             100000               601.7 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Basic-8             100000               434.7 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Basic-8             100000               453.6 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Basic-8             100000               408.0 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Basic-8             100000               447.0 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Basic_Parallel-8    100000               191.7 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Basic_Parallel-8    100000               169.2 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Basic_Parallel-8    100000               176.8 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Basic_Parallel-8    100000               158.7 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Basic_Parallel-8    100000               174.0 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Attr-8              100000               967.8 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Attr-8              100000               949.6 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Attr-8              100000               989.3 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Attr-8              100000               943.7 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Attr-8              100000               949.6 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Attr_Parallel-8     100000               231.1 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Attr_Parallel-8     100000               231.2 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Attr_Parallel-8     100000               231.7 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Attr_Parallel-8     100000               235.5 ns/op             0 B/op          0 allocs/op
+BenchmarkCLIHandler_Attr_Parallel-8     100000               231.9 ns/op             0 B/op          0 allocs/op
 PASS
-ok      github.com/nekrassov01/logger/benchmarks        0.772s
+ok      github.com/nekrassov01/logger/benchmarks        1.250s
 ```
 
 ## Installation
