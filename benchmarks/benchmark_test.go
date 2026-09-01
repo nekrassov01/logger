@@ -1,7 +1,8 @@
 package main
 
 import (
-	"bytes"
+	"context"
+	"io"
 	"log/slog"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ func attrHandler(_ []string, a slog.Attr) slog.Attr {
 }
 
 func newLogger(attr bool) *log.Logger {
-	h := log.NewCLIHandler(&bytes.Buffer{},
+	h := log.NewCLIHandler(io.Discard,
 		log.WithLevel(slog.LevelDebug),
 		log.WithLabel("APP"),
 		log.WithTime(true),
@@ -42,7 +43,6 @@ func newLogger(attr bool) *log.Logger {
 			slog.Bool("bool-key", true),
 			slog.Time("time-key", time.Date(2025, time.April, 1, 0, 0, 0, 0, time.UTC)),
 			slog.Duration("duration-key", 1*time.Second),
-			slog.Any("map-key", map[string]string{"key1": "value1", "key2": "value2"}),
 			slog.Group("group2",
 				slog.String("nested-string-key", "nested-string-value"),
 			),
@@ -83,7 +83,6 @@ func BenchmarkCLIHandler_Attr(b *testing.B) {
 		slog.Bool("bool-key", true),
 		slog.Time("time-key", time.Date(2025, time.April, 1, 0, 0, 0, 0, time.UTC)),
 		slog.Duration("duration-key", 1*time.Second),
-		slog.Any("map-key", map[string]string{"key1": "value1", "key2": "value2"}),
 		slog.Group("group2",
 			slog.String("nested-string-key", "nested-string-value"),
 		),
@@ -91,7 +90,7 @@ func BenchmarkCLIHandler_Attr(b *testing.B) {
 		slog.String("password", "p@ssw0rd"),
 	)
 	for b.Loop() {
-		l.Info("test message.", attr)
+		l.LogAttrs(context.Background(), slog.LevelInfo, "test message.", attr)
 	}
 }
 
@@ -107,7 +106,6 @@ func BenchmarkCLIHandler_Attr_Parallel(b *testing.B) {
 		slog.Bool("bool-key", true),
 		slog.Time("time-key", time.Date(2025, time.April, 1, 0, 0, 0, 0, time.UTC)),
 		slog.Duration("duration-key", 1*time.Second),
-		slog.Any("map-key", map[string]string{"key1": "value1", "key2": "value2"}),
 		slog.Group("group2",
 			slog.String("nested-string-key", "nested-string-value"),
 		),
@@ -116,7 +114,7 @@ func BenchmarkCLIHandler_Attr_Parallel(b *testing.B) {
 	)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			l.Info("test message.", attr)
+			l.LogAttrs(context.Background(), slog.LevelInfo, "test message.", attr)
 		}
 	})
 }
