@@ -10,14 +10,14 @@ import (
 
 func main() {
 	var (
-		l *log.Logger
+		l *slog.Logger
 		h slog.Handler
 
 		withLevel       = log.WithLevel(slog.LevelDebug)
 		withTime        = log.WithTime(true)
 		withTimeFormat  = log.WithTimeFormat(time.RFC3339)
 		withCaller      = log.WithCaller(true)
-		withAttrHandler = log.WithAttrHandler(func(a slog.Attr) slog.Attr {
+		withAttrHandler = log.WithAttrHandler(func(_ []string, a slog.Attr) slog.Attr {
 			if a.Key == "password" {
 				return slog.Attr{
 					Key:   a.Key,
@@ -52,12 +52,12 @@ func main() {
 		withAttrHandler,
 		log.WithStyle(s0),
 	)
-	h = h.WithGroup("style0").WithAttrs(
-		[]slog.Attr{
+	l = log.NewLogger(h).
+		WithGroup("style0").
+		With(
 			slog.String("version", "1.0.0"),
 			slog.String("password", "p@ssw0rd"),
-		})
-	l = log.NewLogger(h)
+		)
 	l.Debug(dbgMsg)
 	l.Info(infMsg)
 	l.Warn(wrnMsg)
@@ -74,12 +74,12 @@ func main() {
 		withAttrHandler,
 		log.WithStyle(s1),
 	)
-	h = h.WithGroup("style1").WithAttrs(
-		[]slog.Attr{
+	l = log.NewLogger(h).
+		WithGroup("style1").
+		With(
 			slog.String("version", "1.0.0"),
 			slog.String("password", "p@ssw0rd"),
-		})
-	l = log.NewLogger(h)
+		)
 	l.Debug(dbgMsg)
 	l.Info(infMsg)
 	l.Warn(wrnMsg)
@@ -96,12 +96,12 @@ func main() {
 		withAttrHandler,
 		log.WithStyle(s2),
 	)
-	h = h.WithGroup("style2").WithAttrs(
-		[]slog.Attr{
+	l = log.NewLogger(h).
+		WithGroup("style2").
+		With(
 			slog.String("version", "1.0.0"),
 			slog.String("password", "p@ssw0rd"),
-		})
-	l = log.NewLogger(h)
+		)
 	l.Debug(dbgMsg)
 	l.Info(infMsg)
 	l.Warn(wrnMsg)
@@ -118,12 +118,12 @@ func main() {
 		withAttrHandler,
 		log.WithStyle(s3),
 	)
-	h = h.WithGroup("style3").WithAttrs(
-		[]slog.Attr{
+	l = log.NewLogger(h).
+		WithGroup("style3").
+		With(
 			slog.String("version", "1.0.0"),
 			slog.String("password", "p@ssw0rd"),
-		})
-	l = log.NewLogger(h)
+		)
 	l.Debug(dbgMsg)
 	l.Info(infMsg)
 	l.Warn(wrnMsg)
@@ -140,12 +140,12 @@ func main() {
 		withAttrHandler,
 		log.WithStyle(s4),
 	)
-	h = h.WithGroup("style4").WithAttrs(
-		[]slog.Attr{
+	l = log.NewLogger(h).
+		WithGroup("style4").
+		With(
 			slog.String("version", "1.0.0"),
 			slog.String("password", "p@ssw0rd"),
-		})
-	l = log.NewLogger(h)
+		)
 	l.Debug(dbgMsg)
 	l.Info(infMsg)
 	l.Warn(wrnMsg)
@@ -241,12 +241,12 @@ func main() {
 		withAttrHandler,
 		log.WithStyle(s),
 	)
-	h = h.WithGroup("style5").WithAttrs(
-		[]slog.Attr{
+	l = log.NewLogger(h).
+		WithGroup("style5").
+		With(
 			slog.String("version", "1.0.0"),
 			slog.String("password", "p@ssw0rd"),
-		})
-	l = log.NewLogger(h)
+		)
 	l.Debug(dbgMsg)
 	l.Info(infMsg)
 	l.Warn(wrnMsg)

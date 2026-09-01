@@ -16,6 +16,30 @@ import (
 	"time"
 )
 
+// testLogValuer resolves to a fixed string value.
+type testLogValuer struct{}
+
+// LogValue returns the value used by the handler tests.
+func (testLogValuer) LogValue() slog.Value {
+	return slog.StringValue("resolved")
+}
+
+// testGroupLogValuer resolves to a group containing another LogValuer.
+type testGroupLogValuer struct{}
+
+// LogValue returns the group used by the handler tests.
+func (testGroupLogValuer) LogValue() slog.Value {
+	return slog.GroupValue(slog.Any("nested", testLogValuer{}))
+}
+
+// testShortWriter reports a successful partial write.
+type testShortWriter struct{}
+
+// Write writes all but the final byte.
+func (testShortWriter) Write(p []byte) (int, error) {
+	return len(p) - 1, nil
+}
+
 func TestNewCLIHandler(t *testing.T) {
 	type args struct {
 		opts []CLIHandlerOption
@@ -118,7 +142,7 @@ func TestNewCLIHandler(t *testing.T) {
 		{
 			name: "with attr handler",
 			args: args{opts: []CLIHandlerOption{
-				WithAttrHandler(func(a slog.Attr) slog.Attr { return a }),
+				WithAttrHandler(func(_ []string, a slog.Attr) slog.Attr { return a }),
 			}},
 			check: func(t *testing.T, h *CLIHandler) {
 				if h.attrHandler == nil {
@@ -173,12 +197,11 @@ func TestCLIHandler_Enabled(t *testing.T) {
 		mu          *sync.Mutex
 		level       slog.Leveler
 		prefix      string
-		attrs       []slog.Attr
 		attrsCache  []byte
-		attrHandler func(a slog.Attr) slog.Attr
+		attrHandler func(_ []string, a slog.Attr) slog.Attr
 		groups      []string
-		groupsCache []string
 		pcCache     map[uintptr][]byte
+		callerMu    *sync.RWMutex
 		hasCaller   bool
 		hasTime     bool
 		timeLayout  string
@@ -246,12 +269,11 @@ func TestCLIHandler_Enabled(t *testing.T) {
 				mu:          tt.fields.mu,
 				level:       tt.fields.level,
 				prefix:      tt.fields.prefix,
-				attrs:       tt.fields.attrs,
 				attrsCache:  tt.fields.attrsCache,
 				attrHandler: tt.fields.attrHandler,
 				groups:      tt.fields.groups,
-				groupsCache: tt.fields.groupsCache,
 				pcCache:     tt.fields.pcCache,
+				callerMu:    tt.fields.callerMu,
 				hasCaller:   tt.fields.hasCaller,
 				hasTime:     tt.fields.hasTime,
 				timeLayout:  tt.fields.timeLayout,
@@ -270,12 +292,11 @@ func TestCLIHandler_Handle(t *testing.T) {
 		mu          *sync.Mutex
 		level       slog.Leveler
 		prefix      string
-		attrs       []slog.Attr
 		attrsCache  []byte
-		attrHandler func(a slog.Attr) slog.Attr
+		attrHandler func(_ []string, a slog.Attr) slog.Attr
 		groups      []string
-		groupsCache []string
 		pcCache     map[uintptr][]byte
+		callerMu    *sync.RWMutex
 		hasCaller   bool
 		hasTime     bool
 		timeLayout  string
@@ -349,7 +370,21 @@ func TestCLIHandler_Handle(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "unknown level",
+			name: "short write",
+			fields: fields{
+				w:     testShortWriter{},
+				mu:    &sync.Mutex{},
+				level: slog.LevelInfo,
+				style: Style0(),
+			},
+			args: args{
+				ctx: context.Background(),
+				r:   slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0),
+			},
+			wantErr: true,
+		},
+		{
+			name: "custom level",
 			fields: fields{
 				w:     &bytes.Buffer{},
 				mu:    &sync.Mutex{},
@@ -360,7 +395,7 @@ func TestCLIHandler_Handle(t *testing.T) {
 				ctx: context.Background(),
 				r:   slog.NewRecord(time.Now(), slog.Level(1), "msg", 0),
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 		{
 			name: "level formatting",
@@ -431,6 +466,7 @@ func TestCLIHandler_Handle(t *testing.T) {
 				level:     slog.LevelInfo,
 				hasCaller: true,
 				pcCache:   make(map[uintptr][]byte),
+				callerMu:  &sync.RWMutex{},
 				style: func() *Style {
 					s := Style0()
 					s.Caller.Fullpath = false
@@ -462,6 +498,7 @@ func TestCLIHandler_Handle(t *testing.T) {
 				level:     slog.LevelInfo,
 				hasCaller: true,
 				pcCache:   make(map[uintptr][]byte),
+				callerMu:  &sync.RWMutex{},
 				style: func() *Style {
 					s := Style0()
 					s.Caller.Fullpath = true
@@ -507,13 +544,34 @@ func TestCLIHandler_Handle(t *testing.T) {
 			},
 		},
 		{
+			name: "zero time",
+			fields: fields{
+				w:          &bytes.Buffer{},
+				mu:         &sync.Mutex{},
+				level:      slog.LevelInfo,
+				hasTime:    true,
+				timeLayout: time.RFC3339,
+				style:      Style0(),
+			},
+			args: args{
+				ctx: context.Background(),
+				r:   slog.NewRecord(time.Time{}, slog.LevelInfo, "msg", 0),
+			},
+			wantErr: false,
+			check: func(t *testing.T, output string) {
+				if got, want := output, "[INF] msg\n"; got != want {
+					t.Errorf("got %q, want %q", got, want)
+				}
+			},
+		},
+		{
 			name: "attr handler on record attrs",
 			fields: fields{
 				w:     &bytes.Buffer{},
 				mu:    &sync.Mutex{},
 				level: slog.LevelInfo,
 				style: Style0(),
-				attrHandler: func(a slog.Attr) slog.Attr {
+				attrHandler: func(_ []string, a slog.Attr) slog.Attr {
 					if a.Key == "secret" {
 						return slog.String(a.Key, "***")
 					}
@@ -534,8 +592,8 @@ func TestCLIHandler_Handle(t *testing.T) {
 				if !strings.Contains(output, "secret=***") {
 					t.Errorf("got %q, want contain secret=***", output)
 				}
-				if strings.Contains(output, "empty") {
-					t.Error("should skip empty key")
+				if !strings.Contains(output, "=empty") {
+					t.Errorf("got %q, want contain =empty", output)
 				}
 			},
 		},
@@ -556,29 +614,6 @@ func TestCLIHandler_Handle(t *testing.T) {
 			check: func(t *testing.T, output string) {
 				if !strings.Contains(output, " cached=val") {
 					t.Errorf("got %q, want contain cached=val", output)
-				}
-			},
-		},
-		{
-			name: "attrs cache not used, from attrs",
-			fields: fields{
-				w:     &bytes.Buffer{},
-				mu:    &sync.Mutex{},
-				level: slog.LevelInfo,
-				style: Style0(),
-				attrs: []slog.Attr{slog.String("key", "val"), slog.String("", "skipped")},
-			},
-			args: args{
-				ctx: context.Background(),
-				r:   slog.NewRecord(time.Time{}, slog.LevelInfo, "msg", 0),
-			},
-			wantErr: false,
-			check: func(t *testing.T, output string) {
-				if !strings.Contains(output, "key=val") {
-					t.Errorf("got %q, want contain key=val", output)
-				}
-				if strings.Contains(output, "skipped") {
-					t.Error("should skip empty key attr")
 				}
 			},
 		},
@@ -612,7 +647,8 @@ func TestCLIHandler_Handle(t *testing.T) {
 				pcCache: map[uintptr][]byte{
 					12345: []byte("cached.go:99"),
 				},
-				style: Style0(),
+				callerMu: &sync.RWMutex{},
+				style:    Style0(),
 			},
 			args: args{
 				ctx: context.Background(),
@@ -628,12 +664,11 @@ func TestCLIHandler_Handle(t *testing.T) {
 		{
 			name: "with groups and cache",
 			fields: fields{
-				w:           &bytes.Buffer{},
-				mu:          &sync.Mutex{},
-				level:       slog.LevelInfo,
-				style:       Style0(),
-				groups:      []string{"g1"},
-				groupsCache: []string{"g1"},
+				w:      &bytes.Buffer{},
+				mu:     &sync.Mutex{},
+				level:  slog.LevelInfo,
+				style:  Style0(),
+				groups: []string{"g1"},
 			},
 			args: args{
 				ctx: context.Background(),
@@ -658,12 +693,11 @@ func TestCLIHandler_Handle(t *testing.T) {
 				mu:          tt.fields.mu,
 				level:       tt.fields.level,
 				prefix:      tt.fields.prefix,
-				attrs:       tt.fields.attrs,
 				attrsCache:  tt.fields.attrsCache,
 				attrHandler: tt.fields.attrHandler,
 				groups:      tt.fields.groups,
-				groupsCache: tt.fields.groupsCache,
 				pcCache:     tt.fields.pcCache,
+				callerMu:    tt.fields.callerMu,
 				hasCaller:   tt.fields.hasCaller,
 				hasTime:     tt.fields.hasTime,
 				timeLayout:  tt.fields.timeLayout,
@@ -683,18 +717,127 @@ func TestCLIHandler_Handle(t *testing.T) {
 	}
 }
 
+func TestCLIHandler_HandleAttrHandler(t *testing.T) {
+	t.Run("built-in attrs", func(t *testing.T) {
+		buf := &bytes.Buffer{}
+		var gotKeys []string
+		var gotGroups [][]string
+		handler := NewCLIHandler(buf,
+			WithStyle(Style0()),
+			WithTime(true),
+			WithCaller(true),
+			WithAttrHandler(func(groups []string, attr slog.Attr) slog.Attr {
+				gotKeys = append(gotKeys, attr.Key)
+				gotGroups = append(gotGroups, append([]string(nil), groups...))
+				switch attr.Key {
+				case slog.TimeKey:
+					return slog.Int64("timestamp", attr.Value.Time().Unix())
+				case slog.LevelKey:
+					return slog.String("severity", attr.Value.Any().(slog.Level).String())
+				case slog.MessageKey:
+					return slog.String("message", "changed")
+				default:
+					return attr
+				}
+			}),
+		).WithGroup("g")
+		pc, _, _, _ := runtime.Caller(0)
+		record := slog.NewRecord(time.Unix(1, 0), slog.LevelInfo, "original", pc)
+		record.Add(slog.String("user", "value"))
+
+		if err := handler.Handle(context.Background(), record); err != nil {
+			t.Fatalf("Handle() error = %v", err)
+		}
+
+		if want := []string{slog.TimeKey, slog.LevelKey, slog.MessageKey, "user"}; !reflect.DeepEqual(gotKeys, want) {
+			t.Errorf("handled keys = %v, want %v", gotKeys, want)
+		}
+		if want := [][]string{nil, nil, nil, {"g"}}; !reflect.DeepEqual(gotGroups, want) {
+			t.Errorf("handled groups = %v, want %v", gotGroups, want)
+		}
+		output := buf.String()
+		for _, want := range []string{"severity=INFO", "<handler_test.go:", "message=changed", "timestamp=1", "g.user=value"} {
+			if !strings.Contains(output, want) {
+				t.Errorf("output = %q, want contain %q", output, want)
+			}
+		}
+		for _, unwanted := range []string{"[INF]", "original"} {
+			if strings.Contains(output, unwanted) {
+				t.Errorf("output = %q, want not contain %q", output, unwanted)
+			}
+		}
+	})
+
+	t.Run("remove built-in attrs", func(t *testing.T) {
+		buf := &bytes.Buffer{}
+		handler := NewCLIHandler(buf,
+			WithStyle(Style0()),
+			WithTime(true),
+			WithAttrHandler(func(_ []string, attr slog.Attr) slog.Attr {
+				switch attr.Key {
+				case slog.TimeKey, slog.LevelKey, slog.MessageKey:
+					return slog.Attr{}
+				default:
+					return attr
+				}
+			}),
+		).WithAttrs([]slog.Attr{slog.String("cached", "value")})
+		record := slog.NewRecord(time.Unix(1, 0), slog.LevelInfo, "msg", 0)
+		record.Add(slog.String("user", "value"))
+
+		if err := handler.Handle(context.Background(), record); err != nil {
+			t.Fatalf("Handle() error = %v", err)
+		}
+
+		if got, want := buf.String(), "cached=value user=value\n"; got != want {
+			t.Errorf("output = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("group result", func(t *testing.T) {
+		buf := &bytes.Buffer{}
+		var got []string
+		handler := NewCLIHandler(buf,
+			WithStyle(Style0()),
+			WithTime(true),
+			WithAttrHandler(func(groups []string, attr slog.Attr) slog.Attr {
+				path := strings.Join(groups, ".")
+				if path != "" {
+					path += "."
+				}
+				got = append(got, path+attr.Key)
+				if attr.Key == slog.TimeKey {
+					return slog.Group("clock", slog.String("child", "value"))
+				}
+				return attr
+			}),
+		)
+		record := slog.NewRecord(time.Unix(1, 0), slog.LevelInfo, "msg", 0)
+
+		if err := handler.Handle(context.Background(), record); err != nil {
+			t.Fatalf("Handle() error = %v", err)
+		}
+
+		if want := []string{slog.TimeKey, "clock.child", slog.LevelKey, slog.MessageKey}; !reflect.DeepEqual(got, want) {
+			t.Errorf("handled attrs = %v, want %v", got, want)
+		}
+		if output := buf.String(); !strings.Contains(output, "clock.child=value") {
+			t.Errorf("output = %q, want contain %q", output, "clock.child=value")
+		}
+	})
+}
+
 func TestCLIHandler_WithAttrs(t *testing.T) {
 	type fields struct {
 		w           io.Writer
 		mu          *sync.Mutex
 		level       slog.Leveler
 		prefix      string
-		attrs       []slog.Attr
 		attrsCache  []byte
-		attrHandler func(a slog.Attr) slog.Attr
+		attrHandler func(_ []string, a slog.Attr) slog.Attr
 		groups      []string
-		groupsCache []string
 		pcCache     map[uintptr][]byte
+		callerMu    *sync.RWMutex
 		hasCaller   bool
 		hasTime     bool
 		timeLayout  string
@@ -743,17 +886,8 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 				if h2.mu != origin.mu {
 					t.Error("want shared mutex")
 				}
-				if len(h2.attrs) != 1 {
-					t.Errorf("len(attrs) = %v, want 1", len(h2.attrs))
-				}
-				if h2.attrs[0].Key != "key" || h2.attrs[0].Value.String() != "value" {
-					t.Error("attr mismatch")
-				}
-				if len(h2.attrsCache) == 0 {
-					t.Error("attrsCache expected to be populated")
-				}
-				if h2.groupsCache != nil {
-					t.Error("groupsCache should be nil for empty groups")
+				if got, want := string(h2.attrsCache), " key=value"; got != want {
+					t.Errorf("attrsCache = %q, want %q", got, want)
 				}
 			},
 		},
@@ -761,7 +895,7 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 			name: "with attr handler",
 			fields: fields{
 				style: Style0(),
-				attrHandler: func(a slog.Attr) slog.Attr {
+				attrHandler: func(_ []string, a slog.Attr) slog.Attr {
 					if a.Key == "secret" {
 						return slog.String(a.Key, "***")
 					}
@@ -776,40 +910,8 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 				if !ok {
 					t.Fatal("got not *CLIHandler")
 				}
-				if len(h2.attrs) != 1 {
-					t.Errorf("len(attrs) = %v, want 1", len(h2.attrs))
-				}
-				if h2.attrs[0].Value.String() != "***" {
-					t.Errorf("value = %v, want ***", h2.attrs[0].Value.String())
-				}
-			},
-		},
-		{
-			name: "with attr handler (apply to existing attrs)",
-			fields: fields{
-				mu:    &sync.Mutex{},
-				style: Style0(),
-				attrs: []slog.Attr{slog.String("existing", "val")},
-				attrHandler: func(a slog.Attr) slog.Attr {
-					if a.Key == "existing" {
-						return slog.String(a.Key, "modified")
-					}
-					return a
-				},
-			},
-			args: args{
-				attrs: []slog.Attr{slog.String("new", "val")},
-			},
-			check: func(t *testing.T, _ *CLIHandler, got slog.Handler) {
-				h2, ok := got.(*CLIHandler)
-				if !ok {
-					t.Fatal("got not *CLIHandler")
-				}
-				if len(h2.attrs) != 2 {
-					t.Errorf("len(attrs) = %v, want 2", len(h2.attrs))
-				}
-				if h2.attrs[0].Value.String() != "modified" {
-					t.Errorf("attr[0] value = %v, want modified", h2.attrs[0].Value.String())
+				if got, want := string(h2.attrsCache), " secret=***"; got != want {
+					t.Errorf("attrsCache = %q, want %q", got, want)
 				}
 			},
 		},
@@ -828,16 +930,13 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 				if !ok {
 					t.Fatal("got not *CLIHandler")
 				}
-				if len(h2.groupsCache) != 1 {
-					t.Errorf("len(groupsCache) = %v, want 1", len(h2.groupsCache))
-				}
-				if h2.groupsCache[0] != "g1" {
-					t.Errorf("groupsCache[0] = %v, want g1", h2.groupsCache[0])
+				if got, want := string(h2.attrsCache), " g1.key=val"; got != want {
+					t.Errorf("attrsCache = %q, want %q", got, want)
 				}
 			},
 		},
 		{
-			name: "empty key attr (skipped)",
+			name: "empty key attr",
 			fields: fields{
 				mu:    &sync.Mutex{},
 				style: Style0(),
@@ -850,13 +949,13 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 				if !ok {
 					t.Fatal("got not *CLIHandler")
 				}
-				if h2.attrsCache != nil {
-					t.Error("attrsCache should be nil (skipped)")
+				if got, want := string(h2.attrsCache), " =val"; got != want {
+					t.Errorf("attrsCache = %q, want %q", got, want)
 				}
 			},
 		},
 		{
-			name: "all empty key attrs leads to nil cache",
+			name: "all empty key attrs",
 			fields: fields{
 				mu:    &sync.Mutex{},
 				style: Style0(),
@@ -869,8 +968,8 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 				if !ok {
 					t.Fatal("got not *CLIHandler")
 				}
-				if h2.attrsCache != nil {
-					t.Error("attrsCache should be nil")
+				if got, want := string(h2.attrsCache), " =v1 =v2"; got != want {
+					t.Errorf("attrsCache = %q, want %q", got, want)
 				}
 			},
 		},
@@ -882,12 +981,11 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 				mu:          tt.fields.mu,
 				level:       tt.fields.level,
 				prefix:      tt.fields.prefix,
-				attrs:       tt.fields.attrs,
 				attrsCache:  tt.fields.attrsCache,
 				attrHandler: tt.fields.attrHandler,
 				groups:      tt.fields.groups,
-				groupsCache: tt.fields.groupsCache,
 				pcCache:     tt.fields.pcCache,
+				callerMu:    tt.fields.callerMu,
 				hasCaller:   tt.fields.hasCaller,
 				hasTime:     tt.fields.hasTime,
 				timeLayout:  tt.fields.timeLayout,
@@ -907,12 +1005,11 @@ func TestCLIHandler_WithGroup(t *testing.T) {
 		mu          *sync.Mutex
 		level       slog.Leveler
 		prefix      string
-		attrs       []slog.Attr
 		attrsCache  []byte
-		attrHandler func(a slog.Attr) slog.Attr
+		attrHandler func(_ []string, a slog.Attr) slog.Attr
 		groups      []string
-		groupsCache []string
 		pcCache     map[uintptr][]byte
+		callerMu    *sync.RWMutex
 		hasCaller   bool
 		hasTime     bool
 		timeLayout  string
@@ -1003,12 +1100,11 @@ func TestCLIHandler_WithGroup(t *testing.T) {
 				mu:          tt.fields.mu,
 				level:       tt.fields.level,
 				prefix:      tt.fields.prefix,
-				attrs:       tt.fields.attrs,
 				attrsCache:  tt.fields.attrsCache,
 				attrHandler: tt.fields.attrHandler,
 				groups:      tt.fields.groups,
-				groupsCache: tt.fields.groupsCache,
 				pcCache:     tt.fields.pcCache,
+				callerMu:    tt.fields.callerMu,
 				hasCaller:   tt.fields.hasCaller,
 				hasTime:     tt.fields.hasTime,
 				timeLayout:  tt.fields.timeLayout,
@@ -1106,6 +1202,7 @@ func TestCLIHandler_caller(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			tt.h.callerMu = &sync.RWMutex{}
 			got, gotOK := tt.h.caller(tt.pc)
 			if gotOK != tt.wantOK {
 				t.Errorf("caller() ok = %v, want %v", gotOK, tt.wantOK)
@@ -1130,12 +1227,11 @@ func TestCLIHandler_writeCaller(t *testing.T) {
 		mu          *sync.Mutex
 		level       slog.Leveler
 		prefix      string
-		attrs       []slog.Attr
 		attrsCache  []byte
-		attrHandler func(a slog.Attr) slog.Attr
+		attrHandler func(_ []string, a slog.Attr) slog.Attr
 		groups      []string
-		groupsCache []string
 		pcCache     map[uintptr][]byte
+		callerMu    *sync.RWMutex
 		hasCaller   bool
 		hasTime     bool
 		timeLayout  string
@@ -1159,8 +1255,8 @@ func TestCLIHandler_writeCaller(t *testing.T) {
 				b: []byte("main.go:10"),
 			},
 			check: func(t *testing.T, got string) {
-				if got != "<main.go:10> " {
-					t.Errorf("got %q, want %q", got, "<main.go:10> ")
+				if got != "<main.go:10>" {
+					t.Errorf("got %q, want %q", got, "<main.go:10>")
 				}
 			},
 		},
@@ -1178,8 +1274,8 @@ func TestCLIHandler_writeCaller(t *testing.T) {
 				b: []byte("main.go:10"),
 			},
 			check: func(t *testing.T, got string) {
-				if got != "main.go:10 " {
-					t.Errorf("got %q, want %q", got, "main.go:10 ")
+				if got != "main.go:10" {
+					t.Errorf("got %q, want %q", got, "main.go:10")
 				}
 			},
 		},
@@ -1200,8 +1296,8 @@ func TestCLIHandler_writeCaller(t *testing.T) {
 				b: []byte("main.go:10"),
 			},
 			check: func(t *testing.T, got string) {
-				if got != "(main.go:10) " {
-					t.Errorf("got %q, want %q", got, "(main.go:10) ")
+				if got != "(main.go:10)" {
+					t.Errorf("got %q, want %q", got, "(main.go:10)")
 				}
 			},
 		},
@@ -1213,20 +1309,19 @@ func TestCLIHandler_writeCaller(t *testing.T) {
 				mu:          tt.fields.mu,
 				level:       tt.fields.level,
 				prefix:      tt.fields.prefix,
-				attrs:       tt.fields.attrs,
 				attrsCache:  tt.fields.attrsCache,
 				attrHandler: tt.fields.attrHandler,
 				groups:      tt.fields.groups,
-				groupsCache: tt.fields.groupsCache,
 				pcCache:     tt.fields.pcCache,
+				callerMu:    tt.fields.callerMu,
 				hasCaller:   tt.fields.hasCaller,
 				hasTime:     tt.fields.hasTime,
 				timeLayout:  tt.fields.timeLayout,
 				style:       tt.fields.style,
 			}
-			buf := &bytes.Buffer{}
-			h.writeCaller(buf, tt.args.b, h.style)
-			tt.check(t, buf.String())
+			buf := buffer{}
+			h.writeCaller(&buf, tt.args.b, h.style)
+			tt.check(t, string(buf))
 		})
 	}
 }
@@ -1237,12 +1332,11 @@ func TestCLIHandler_writeAttr(t *testing.T) {
 		mu          *sync.Mutex
 		level       slog.Leveler
 		prefix      string
-		attrs       []slog.Attr
 		attrsCache  []byte
-		attrHandler func(a slog.Attr) slog.Attr
+		attrHandler func(_ []string, a slog.Attr) slog.Attr
 		groups      []string
-		groupsCache []string
 		pcCache     map[uintptr][]byte
+		callerMu    *sync.RWMutex
 		hasCaller   bool
 		hasTime     bool
 		timeLayout  string
@@ -1370,6 +1464,82 @@ func TestCLIHandler_writeAttr(t *testing.T) {
 			want: "user={Alice}",
 		},
 		{
+			name: "log valuer",
+			fields: fields{
+				style: Style0(),
+			},
+			args: args{
+				attr: slog.Any("lazy", testLogValuer{}),
+			},
+			want: "lazy=resolved",
+		},
+		{
+			name: "group log valuer",
+			fields: fields{
+				style: Style0(),
+			},
+			args: args{
+				attr: slog.Any("group", testGroupLogValuer{}),
+			},
+			want: "group.nested=resolved",
+		},
+		{
+			name: "attr handler result",
+			fields: fields{
+				style: Style0(),
+				attrHandler: func(_ []string, attr slog.Attr) slog.Attr {
+					return slog.Any(attr.Key, testLogValuer{})
+				},
+			},
+			args: args{
+				attr: slog.String("lazy", "value"),
+			},
+			want: "lazy=resolved",
+		},
+		{
+			name: "attr handler removes attr",
+			fields: fields{
+				style: Style0(),
+				attrHandler: func(_ []string, _ slog.Attr) slog.Attr {
+					return slog.Attr{}
+				},
+			},
+			args: args{
+				attr: slog.String("drop", "value"),
+			},
+			want: "",
+		},
+		{
+			name: "zero attr",
+			fields: fields{
+				style: Style0(),
+			},
+			args: args{
+				attr: slog.Attr{},
+			},
+			want: "",
+		},
+		{
+			name: "empty group",
+			fields: fields{
+				style: Style0(),
+			},
+			args: args{
+				attr: slog.Group("empty"),
+			},
+			want: "",
+		},
+		{
+			name: "inline group",
+			fields: fields{
+				style: Style0(),
+			},
+			args: args{
+				attr: slog.Group("", slog.String("inline", "yes")),
+			},
+			want: "inline=yes",
+		},
+		{
 			name: "with groups",
 			fields: fields{
 				style: Style0(),
@@ -1379,6 +1549,17 @@ func TestCLIHandler_writeAttr(t *testing.T) {
 				groups: []string{"g1", "g2"},
 			},
 			want: "g1.g2.key=val",
+		},
+		{
+			name: "colored group",
+			fields: fields{
+				style: Style1(),
+			},
+			args: args{
+				attr:   slog.String("key", "val"),
+				groups: []string{"g"},
+			},
+			want: "\x1b[90mg\x1b[0m\x1b[90m.\x1b[0m\x1b[90mkey\x1b[0m\x1b[90m=\x1b[0mval",
 		},
 		{
 			name: "group attr simple",
@@ -1463,24 +1644,89 @@ func TestCLIHandler_writeAttr(t *testing.T) {
 				mu:          tt.fields.mu,
 				level:       tt.fields.level,
 				prefix:      tt.fields.prefix,
-				attrs:       tt.fields.attrs,
 				attrsCache:  tt.fields.attrsCache,
 				attrHandler: tt.fields.attrHandler,
 				groups:      tt.fields.groups,
-				groupsCache: tt.fields.groupsCache,
 				pcCache:     tt.fields.pcCache,
+				callerMu:    tt.fields.callerMu,
 				hasCaller:   tt.fields.hasCaller,
 				hasTime:     tt.fields.hasTime,
 				timeLayout:  tt.fields.timeLayout,
 				style:       tt.fields.style,
 			}
-			buf := &bytes.Buffer{}
-			h.writeAttr(buf, tt.args.attr, tt.args.groups, h.style, h.timeLayout)
-			if got := buf.String(); got != tt.want {
+			buf := buffer{}
+			groups := &groupState{}
+			for _, group := range tt.args.groups {
+				groups.push(group, h.style.Attr.KeyColor)
+			}
+			h.writeAttr(&buf, tt.args.attr, groups, h.style, h.timeLayout)
+			if got := string(buf); got != tt.want {
 				t.Errorf("writeAttr() = %q, want %q", got, tt.want)
 			}
 		})
 	}
+}
+
+func TestCLIHandler_writeAttrHandlerGroups(t *testing.T) {
+	t.Run("nested leaf", func(t *testing.T) {
+		var got []string
+		h := &CLIHandler{
+			style: Style0(),
+			attrHandler: func(groups []string, attr slog.Attr) slog.Attr {
+				path := strings.Join(groups, ".")
+				if path != "" {
+					path += "."
+				}
+				got = append(got, path+attr.Key)
+				return slog.String(attr.Key, "***")
+			},
+		}
+		buf := buffer{}
+		groups := &groupState{}
+		groups.push("account", h.style.Attr.KeyColor)
+
+		h.writeAttr(&buf,
+			slog.Group("profile", slog.String("password", "secret")),
+			groups,
+			h.style,
+			h.timeLayout,
+		)
+
+		if want := []string{"account.profile.password"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("handled attrs = %v, want %v", got, want)
+		}
+		if got, want := string(buf), "account.profile.password=***"; got != want {
+			t.Errorf("output = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("returned group", func(t *testing.T) {
+		var got []string
+		h := &CLIHandler{
+			style: Style0(),
+			attrHandler: func(groups []string, attr slog.Attr) slog.Attr {
+				path := strings.Join(groups, ".")
+				if path != "" {
+					path += "."
+				}
+				got = append(got, path+attr.Key)
+				if attr.Key == "outer" {
+					return slog.Group("changed", slog.String("child", "value"))
+				}
+				return attr
+			},
+		}
+		buf := buffer{}
+
+		h.writeAttr(&buf, slog.String("outer", "value"), nil, h.style, h.timeLayout)
+
+		if want := []string{"outer", "changed.child"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("handled attrs = %v, want %v", got, want)
+		}
+		if got, want := string(buf), "changed.child=value"; got != want {
+			t.Errorf("output = %q, want %q", got, want)
+		}
+	})
 }
 
 func Test_align(t *testing.T) {
@@ -1531,10 +1777,32 @@ func Test_align(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			buf := &bytes.Buffer{}
-			align(buf, tt.args.s, tt.args.w)
-			if got := buf.String(); got != tt.want {
+			buf := buffer{}
+			align(&buf, tt.args.s, tt.args.w)
+			if got := string(buf); got != tt.want {
 				t.Errorf("align() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_needsQuote(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{name: "plain", text: "value", want: false},
+		{name: "space", text: "a b", want: true},
+		{name: "tab", text: "a\tb", want: true},
+		{name: "newline", text: "a\nb", want: true},
+		{name: "backslash", text: `a\b`, want: true},
+		{name: "quote", text: `a"b`, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := needsQuote(tt.text); got != tt.want {
+				t.Errorf("needsQuote() = %v, want %v", got, tt.want)
 			}
 		})
 	}
