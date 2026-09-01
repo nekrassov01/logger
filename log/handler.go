@@ -36,6 +36,7 @@ type CLIHandler struct {
 	attrHandler func([]string, slog.Attr) slog.Attr
 	groups      []string
 	pcCache     map[uintptr][]byte
+	callerMu    *sync.RWMutex
 	hasCaller   bool
 	hasTime     bool
 	timeLayout  string
@@ -51,6 +52,7 @@ func NewCLIHandler(w io.Writer, opts ...CLIHandlerOption) slog.Handler {
 		timeLayout: time.RFC3339,
 		style:      Style1(),
 		pcCache:    make(map[uintptr][]byte),
+		callerMu:   &sync.RWMutex{},
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -133,9 +135,6 @@ func (h *CLIHandler) Enabled(_ context.Context, level slog.Level) bool {
 
 // Handle handles a log record.
 func (h *CLIHandler) Handle(_ context.Context, r slog.Record) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
 	var timeAttr slog.Attr
 	if h.hasTime && !r.Time.IsZero() {
 		timeAttr = h.prepareAttr(nil, slog.Time(slog.TimeKey, r.Time))
@@ -188,8 +187,7 @@ func (h *CLIHandler) Handle(_ context.Context, r slog.Record) error {
 	})
 	// Write to output
 	buf.WriteString("\n")
-	_, err := buf.WriteTo(h.w)
-	return err
+	return h.write(buf)
 }
 
 // WithAttrs returns a new handler with the given attributes.
@@ -240,9 +238,12 @@ func (h *CLIHandler) caller(pc uintptr) ([]byte, bool) {
 	if !h.hasCaller || pc == 0 {
 		return nil, false
 	}
+	h.callerMu.RLock()
 	if b, ok := h.pcCache[pc]; ok {
+		h.callerMu.RUnlock()
 		return b, true
 	}
+	h.callerMu.RUnlock()
 	f := runtime.FuncForPC(pc)
 	if f == nil {
 		return nil, false
@@ -258,8 +259,22 @@ func (h *CLIHandler) caller(pc uintptr) ([]byte, bool) {
 	b := append([]byte(nil), path...)
 	b = append(b, ':')
 	b = strconv.AppendInt(b, int64(line), 10)
+	h.callerMu.Lock()
+	if cached, ok := h.pcCache[pc]; ok {
+		h.callerMu.Unlock()
+		return cached, true
+	}
 	h.pcCache[pc] = b
+	h.callerMu.Unlock()
 	return b, true
+}
+
+// write writes buf to the configured writer while holding the shared lock.
+func (h *CLIHandler) write(buf *bytes.Buffer) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, err := buf.WriteTo(h.w)
+	return err
 }
 
 // writeLevelAttr writes a level using its CLI style or as a regular changed attribute.

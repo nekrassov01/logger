@@ -193,6 +193,7 @@ func TestCLIHandler_Enabled(t *testing.T) {
 		attrHandler func(_ []string, a slog.Attr) slog.Attr
 		groups      []string
 		pcCache     map[uintptr][]byte
+		callerMu    *sync.RWMutex
 		hasCaller   bool
 		hasTime     bool
 		timeLayout  string
@@ -264,6 +265,7 @@ func TestCLIHandler_Enabled(t *testing.T) {
 				attrHandler: tt.fields.attrHandler,
 				groups:      tt.fields.groups,
 				pcCache:     tt.fields.pcCache,
+				callerMu:    tt.fields.callerMu,
 				hasCaller:   tt.fields.hasCaller,
 				hasTime:     tt.fields.hasTime,
 				timeLayout:  tt.fields.timeLayout,
@@ -286,6 +288,7 @@ func TestCLIHandler_Handle(t *testing.T) {
 		attrHandler func(_ []string, a slog.Attr) slog.Attr
 		groups      []string
 		pcCache     map[uintptr][]byte
+		callerMu    *sync.RWMutex
 		hasCaller   bool
 		hasTime     bool
 		timeLayout  string
@@ -441,6 +444,7 @@ func TestCLIHandler_Handle(t *testing.T) {
 				level:     slog.LevelInfo,
 				hasCaller: true,
 				pcCache:   make(map[uintptr][]byte),
+				callerMu:  &sync.RWMutex{},
 				style: func() *Style {
 					s := Style0()
 					s.Caller.Fullpath = false
@@ -472,6 +476,7 @@ func TestCLIHandler_Handle(t *testing.T) {
 				level:     slog.LevelInfo,
 				hasCaller: true,
 				pcCache:   make(map[uintptr][]byte),
+				callerMu:  &sync.RWMutex{},
 				style: func() *Style {
 					s := Style0()
 					s.Caller.Fullpath = true
@@ -620,7 +625,8 @@ func TestCLIHandler_Handle(t *testing.T) {
 				pcCache: map[uintptr][]byte{
 					12345: []byte("cached.go:99"),
 				},
-				style: Style0(),
+				callerMu: &sync.RWMutex{},
+				style:    Style0(),
 			},
 			args: args{
 				ctx: context.Background(),
@@ -669,6 +675,7 @@ func TestCLIHandler_Handle(t *testing.T) {
 				attrHandler: tt.fields.attrHandler,
 				groups:      tt.fields.groups,
 				pcCache:     tt.fields.pcCache,
+				callerMu:    tt.fields.callerMu,
 				hasCaller:   tt.fields.hasCaller,
 				hasTime:     tt.fields.hasTime,
 				timeLayout:  tt.fields.timeLayout,
@@ -808,6 +815,7 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 		attrHandler func(_ []string, a slog.Attr) slog.Attr
 		groups      []string
 		pcCache     map[uintptr][]byte
+		callerMu    *sync.RWMutex
 		hasCaller   bool
 		hasTime     bool
 		timeLayout  string
@@ -955,6 +963,7 @@ func TestCLIHandler_WithAttrs(t *testing.T) {
 				attrHandler: tt.fields.attrHandler,
 				groups:      tt.fields.groups,
 				pcCache:     tt.fields.pcCache,
+				callerMu:    tt.fields.callerMu,
 				hasCaller:   tt.fields.hasCaller,
 				hasTime:     tt.fields.hasTime,
 				timeLayout:  tt.fields.timeLayout,
@@ -978,6 +987,7 @@ func TestCLIHandler_WithGroup(t *testing.T) {
 		attrHandler func(_ []string, a slog.Attr) slog.Attr
 		groups      []string
 		pcCache     map[uintptr][]byte
+		callerMu    *sync.RWMutex
 		hasCaller   bool
 		hasTime     bool
 		timeLayout  string
@@ -1072,6 +1082,7 @@ func TestCLIHandler_WithGroup(t *testing.T) {
 				attrHandler: tt.fields.attrHandler,
 				groups:      tt.fields.groups,
 				pcCache:     tt.fields.pcCache,
+				callerMu:    tt.fields.callerMu,
 				hasCaller:   tt.fields.hasCaller,
 				hasTime:     tt.fields.hasTime,
 				timeLayout:  tt.fields.timeLayout,
@@ -1169,6 +1180,7 @@ func TestCLIHandler_caller(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			tt.h.callerMu = &sync.RWMutex{}
 			got, gotOK := tt.h.caller(tt.pc)
 			if gotOK != tt.wantOK {
 				t.Errorf("caller() ok = %v, want %v", gotOK, tt.wantOK)
@@ -1197,6 +1209,7 @@ func TestCLIHandler_writeCaller(t *testing.T) {
 		attrHandler func(_ []string, a slog.Attr) slog.Attr
 		groups      []string
 		pcCache     map[uintptr][]byte
+		callerMu    *sync.RWMutex
 		hasCaller   bool
 		hasTime     bool
 		timeLayout  string
@@ -1278,6 +1291,7 @@ func TestCLIHandler_writeCaller(t *testing.T) {
 				attrHandler: tt.fields.attrHandler,
 				groups:      tt.fields.groups,
 				pcCache:     tt.fields.pcCache,
+				callerMu:    tt.fields.callerMu,
 				hasCaller:   tt.fields.hasCaller,
 				hasTime:     tt.fields.hasTime,
 				timeLayout:  tt.fields.timeLayout,
@@ -1300,6 +1314,7 @@ func TestCLIHandler_writeAttr(t *testing.T) {
 		attrHandler func(_ []string, a slog.Attr) slog.Attr
 		groups      []string
 		pcCache     map[uintptr][]byte
+		callerMu    *sync.RWMutex
 		hasCaller   bool
 		hasTime     bool
 		timeLayout  string
@@ -1600,6 +1615,7 @@ func TestCLIHandler_writeAttr(t *testing.T) {
 				attrHandler: tt.fields.attrHandler,
 				groups:      tt.fields.groups,
 				pcCache:     tt.fields.pcCache,
+				callerMu:    tt.fields.callerMu,
 				hasCaller:   tt.fields.hasCaller,
 				hasTime:     tt.fields.hasTime,
 				timeLayout:  tt.fields.timeLayout,
