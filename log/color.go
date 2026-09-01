@@ -104,6 +104,56 @@ func (c *Color) WriteBytes(buf *bytes.Buffer, b []byte) {
 	}
 }
 
+// appendString appends the string with the configured SGR sequences.
+func (c *Color) appendString(dst []byte, s string) []byte {
+	if c == nil || len(c.prefix) == 0 {
+		return append(dst, s...)
+	}
+	dst = append(dst, c.prefix...)
+	dst = append(dst, s...)
+	return append(dst, c.reset...)
+}
+
+// appendBytes appends the bytes with the configured SGR sequences.
+func (c *Color) appendBytes(dst, b []byte) []byte {
+	if c == nil || len(c.prefix) == 0 {
+		return append(dst, b...)
+	}
+	dst = append(dst, c.prefix...)
+	dst = append(dst, b...)
+	return append(dst, c.reset...)
+}
+
+// appendStrings appends two independently colored strings.
+func (c *Color) appendStrings(dst []byte, first, second string) []byte {
+	if c == nil || len(c.prefix) == 0 {
+		dst = append(dst, first...)
+		return append(dst, second...)
+	}
+	dst = append(dst, c.prefix...)
+	dst = append(dst, first...)
+	dst = append(dst, c.reset...)
+	dst = append(dst, c.prefix...)
+	dst = append(dst, second...)
+	return append(dst, c.reset...)
+}
+
+// appendPrefix appends the configured SGR prefix.
+func (c *Color) appendPrefix(dst []byte) []byte {
+	if c == nil {
+		return dst
+	}
+	return append(dst, c.prefix...)
+}
+
+// appendReset appends the configured SGR reset sequence.
+func (c *Color) appendReset(dst []byte) []byte {
+	if c == nil {
+		return dst
+	}
+	return append(dst, c.reset...)
+}
+
 // makeSGR builds the SGR escape sequence for the given codes.
 func makeSGR(codes []int) []byte {
 	if len(codes) == 0 {

@@ -1,7 +1,6 @@
 package log
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -9,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -19,12 +17,64 @@ import (
 
 var _ slog.Handler = (*CLIHandler)(nil)
 
-// bufPool is a pool of bytes.Buffers for log message construction.
+// buffer holds a log entry while it is being constructed.
+type buffer []byte
+
+// bufPool is a pool of buffers for log message construction.
 var bufPool = &sync.Pool{
 	New: func() any {
-		return &bytes.Buffer{}
+		buf := make(buffer, 0, 1024)
+		return &buf
 	},
 }
+
+// groupState holds group names and their rendered attribute prefix.
+type groupState struct {
+	names  []string
+	prefix buffer
+}
+
+// push adds a group and returns the previous state lengths.
+func (g *groupState) push(name string, color *Color) (int, int) {
+	namesLen := len(g.names)
+	prefixLen := len(g.prefix)
+	if name != "" {
+		g.names = append(g.names, name)
+		g.prefix = color.appendStrings(g.prefix, name, ".")
+	}
+	return namesLen, prefixLen
+}
+
+// restore restores the state to lengths returned by push.
+func (g *groupState) restore(namesLen, prefixLen int) {
+	g.names = g.names[:namesLen]
+	g.prefix = g.prefix[:prefixLen]
+}
+
+// reset releases references and keeps the state buffers for reuse.
+func (g *groupState) reset() {
+	clear(g.names)
+	g.names = g.names[:0]
+	g.prefix = g.prefix[:0]
+}
+
+// groupPool stores group state used while handling a record.
+var groupPool = &sync.Pool{
+	New: func() any {
+		return &groupState{
+			names:  make([]string, 0, 8),
+			prefix: make(buffer, 0, 256),
+		}
+	},
+}
+
+// Built-in level attributes reuse boxed values for the standard levels.
+var (
+	debugLevelAttr = slog.Any(slog.LevelKey, slog.LevelDebug)
+	infoLevelAttr  = slog.Any(slog.LevelKey, slog.LevelInfo)
+	warnLevelAttr  = slog.Any(slog.LevelKey, slog.LevelWarn)
+	errorLevelAttr = slog.Any(slog.LevelKey, slog.LevelError)
+)
 
 // CLIHandler is a slog.Handler for colored CLI output.
 type CLIHandler struct {
@@ -143,9 +193,9 @@ func (h *CLIHandler) Handle(_ context.Context, r slog.Record) error {
 	messageAttr := h.prepareAttr(nil, slog.String(slog.MessageKey, r.Message))
 
 	// Get buffer from pool for log message construction
-	buf := bufPool.Get().(*bytes.Buffer)
+	buf := bufPool.Get().(*buffer)
 	defer func() {
-		buf.Reset()
+		*buf = (*buf)[:0]
 		bufPool.Put(buf)
 	}()
 
@@ -171,10 +221,12 @@ func (h *CLIHandler) Handle(_ context.Context, r slog.Record) error {
 	}
 
 	// Add attributes
-	var groups []string
+	var groups *groupState
 	if r.NumAttrs() > 0 {
-		groups = make([]string, 0, len(h.groups)+8)
-		groups = append(groups, h.groups...)
+		groups = groupPool.Get().(*groupState)
+		for _, group := range h.groups {
+			groups.push(group, h.style.Attr.KeyColor)
+		}
 	}
 	if writeAttrsCache(buf, h.attrsCache, wrote) {
 		wrote = true
@@ -185,8 +237,13 @@ func (h *CLIHandler) Handle(_ context.Context, r slog.Record) error {
 		}
 		return true
 	})
+	if groups != nil {
+		groups.reset()
+		groupPool.Put(groups)
+	}
+
 	// Write to output
-	buf.WriteString("\n")
+	*buf = append(*buf, '\n')
 	return h.write(buf)
 }
 
@@ -196,27 +253,29 @@ func (h *CLIHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		return h
 	}
 	h2 := *h
-	buf := bufPool.Get().(*bytes.Buffer)
-	buf.Reset()
-	buf.Write(h.attrsCache)
-	groups := make([]string, 0, len(h2.groups)+8)
-	if len(h2.groups) > 0 {
-		groups = append(groups, h2.groups...)
+	buf := bufPool.Get().(*buffer)
+	*buf = (*buf)[:0]
+	*buf = append(*buf, h.attrsCache...)
+	groups := groupPool.Get().(*groupState)
+	for _, group := range h2.groups {
+		groups.push(group, h2.style.Attr.KeyColor)
 	}
 	for _, attr := range attrs {
-		pos := buf.Len()
-		buf.WriteString(" ")
+		pos := len(*buf)
+		*buf = append(*buf, ' ')
 		if !h2.writeAttr(buf, attr, groups, h2.style, h2.timeLayout) {
-			buf.Truncate(pos)
+			*buf = (*buf)[:pos]
 		}
 	}
-	if buf.Len() > 0 {
-		h2.attrsCache = make([]byte, buf.Len())
-		copy(h2.attrsCache, buf.Bytes())
+	if len(*buf) > 0 {
+		h2.attrsCache = make([]byte, len(*buf))
+		copy(h2.attrsCache, *buf)
 	} else {
 		h2.attrsCache = nil
 	}
-	buf.Reset()
+	groups.reset()
+	groupPool.Put(groups)
+	*buf = (*buf)[:0]
 	bufPool.Put(buf)
 	return &h2
 }
@@ -270,15 +329,18 @@ func (h *CLIHandler) caller(pc uintptr) ([]byte, bool) {
 }
 
 // write writes buf to the configured writer while holding the shared lock.
-func (h *CLIHandler) write(buf *bytes.Buffer) error {
+func (h *CLIHandler) write(buf *buffer) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	_, err := buf.WriteTo(h.w)
+	n, err := h.w.Write(*buf)
+	if n != len(*buf) && err == nil {
+		return io.ErrShortWrite
+	}
 	return err
 }
 
 // writeLevelAttr writes a level using its CLI style or as a regular changed attribute.
-func (h *CLIHandler) writeLevelAttr(buf *bytes.Buffer, attr slog.Attr, separated bool) bool {
+func (h *CLIHandler) writeLevelAttr(buf *buffer, attr slog.Attr, separated bool) bool {
 	if attr.Key == slog.LevelKey && attr.Value.Kind() == slog.KindAny {
 		if level, ok := attr.Value.Any().(slog.Level); ok {
 			style := levelStyle(h.style.Level, level)
@@ -294,21 +356,19 @@ func (h *CLIHandler) writeLevelAttr(buf *bytes.Buffer, attr slog.Attr, separated
 }
 
 // writeLevel writes a level with its configured CLI style.
-func writeLevel(buf *bytes.Buffer, style LevelStyle) {
+func writeLevel(buf *buffer, style LevelStyle) {
 	if style.Prefix.Text != "" {
-		style.Prefix.Color.WriteString(buf, style.Prefix.Text)
+		*buf = style.Prefix.Color.appendString(*buf, style.Prefix.Text)
 	}
 	if style.Width > 0 {
-		tmp := bufPool.Get().(*bytes.Buffer)
-		align(tmp, style.Text, style.Width)
-		style.Color.WriteBytes(buf, tmp.Bytes())
-		tmp.Reset()
-		bufPool.Put(tmp)
+		*buf = style.Color.appendPrefix(*buf)
+		align(buf, style.Text, style.Width)
+		*buf = style.Color.appendReset(*buf)
 	} else {
-		style.Color.WriteString(buf, style.Text)
+		*buf = style.Color.appendString(*buf, style.Text)
 	}
 	if style.Suffix.Text != "" {
-		style.Suffix.Color.WriteString(buf, style.Suffix.Text)
+		*buf = style.Suffix.Color.appendString(*buf, style.Suffix.Text)
 	}
 }
 
@@ -328,7 +388,18 @@ func levelStyle(styles map[slog.Level]LevelStyle, level slog.Level) LevelStyle {
 
 // builtInLevelAttr returns a pre-boxed attribute for standard levels.
 func builtInLevelAttr(level slog.Level) slog.Attr {
-	return slog.Any(slog.LevelKey, level)
+	switch level {
+	case slog.LevelDebug:
+		return debugLevelAttr
+	case slog.LevelInfo:
+		return infoLevelAttr
+	case slog.LevelWarn:
+		return warnLevelAttr
+	case slog.LevelError:
+		return errorLevelAttr
+	default:
+		return slog.Any(slog.LevelKey, level)
+	}
 }
 
 // formatSource formats source as a file and line pair.
@@ -348,114 +419,116 @@ func appendSource(b []byte, source *slog.Source, fullpath bool) []byte {
 }
 
 // writeCallerPart writes caller information as a separated output part.
-func (h *CLIHandler) writeCallerPart(buf *bytes.Buffer, b []byte, style *Style, separated bool) {
+func (h *CLIHandler) writeCallerPart(buf *buffer, b []byte, style *Style, separated bool) {
 	writeSeparator(buf, separated)
 	h.writeCaller(buf, b, style)
 }
 
 // writeCaller writes the caller information to buf.
-func (h *CLIHandler) writeCaller(buf *bytes.Buffer, b []byte, style *Style) {
+func (h *CLIHandler) writeCaller(buf *buffer, b []byte, style *Style) {
 	c := style.Caller
 	if c.Prefix.Text != "" {
-		c.Prefix.Color.WriteString(buf, c.Prefix.Text)
+		*buf = c.Prefix.Color.appendString(*buf, c.Prefix.Text)
 	}
-	c.Color.WriteBytes(buf, b)
+	*buf = c.Color.appendBytes(*buf, b)
 	if c.Suffix.Text != "" {
-		c.Suffix.Color.WriteString(buf, c.Suffix.Text)
+		*buf = c.Suffix.Color.appendString(*buf, c.Suffix.Text)
 	}
 }
 
 // writeLabel writes the configured label as a separated output part.
-func (h *CLIHandler) writeLabel(buf *bytes.Buffer, label string, style *Style, separated bool) bool {
+func (h *CLIHandler) writeLabel(buf *buffer, label string, style *Style, separated bool) bool {
 	if label == "" {
 		return false
 	}
 	writeSeparator(buf, separated)
 	s := style.Label
 	if s.Prefix.Text != "" {
-		s.Prefix.Color.WriteString(buf, s.Prefix.Text)
+		*buf = s.Prefix.Color.appendString(*buf, s.Prefix.Text)
 	}
 	if s.Width > 0 {
-		tmp := bufPool.Get().(*bytes.Buffer)
-		align(tmp, label, s.Width)
-		s.Color.WriteBytes(buf, tmp.Bytes())
-		tmp.Reset()
-		bufPool.Put(tmp)
+		*buf = s.Color.appendPrefix(*buf)
+		align(buf, label, s.Width)
+		*buf = s.Color.appendReset(*buf)
 	} else {
-		s.Color.WriteString(buf, label)
+		*buf = s.Color.appendString(*buf, label)
 	}
 	if s.Suffix.Text != "" {
-		s.Suffix.Color.WriteString(buf, s.Suffix.Text)
+		*buf = s.Suffix.Color.appendString(*buf, s.Suffix.Text)
 	}
 	return true
 }
 
 // writeMessageAttr writes a message as plain CLI text or as a regular changed attribute.
-func (h *CLIHandler) writeMessageAttr(buf *bytes.Buffer, attr slog.Attr, separated bool) bool {
+func (h *CLIHandler) writeMessageAttr(buf *buffer, attr slog.Attr, separated bool) bool {
 	if attr.Key == slog.MessageKey && attr.Value.Kind() == slog.KindString {
 		writeSeparator(buf, separated)
-		buf.WriteString(attr.Value.String())
+		*buf = append(*buf, attr.Value.String()...)
 		return true
 	}
 	return h.writePreparedAttrPart(buf, attr, nil, h.style, h.timeLayout, separated)
 }
 
 // writeSeparator writes a space when an output part precedes the next part.
-func writeSeparator(buf *bytes.Buffer, separated bool) {
+func writeSeparator(buf *buffer, separated bool) {
 	if separated {
-		buf.WriteString(" ")
+		*buf = append(*buf, ' ')
 	}
 }
 
 // writeAttrsCache writes cached attributes as a separated output part.
-func writeAttrsCache(buf *bytes.Buffer, attrs []byte, separated bool) bool {
+func writeAttrsCache(buf *buffer, attrs []byte, separated bool) bool {
 	if len(attrs) == 0 {
 		return false
 	}
 	if attrs[0] == ' ' {
 		if separated {
-			buf.Write(attrs)
+			*buf = append(*buf, attrs...)
 		} else {
-			buf.Write(attrs[1:])
+			*buf = append(*buf, attrs[1:]...)
 		}
 		return true
 	}
 	writeSeparator(buf, separated)
-	buf.Write(attrs)
+	*buf = append(*buf, attrs...)
 	return true
 }
 
 // writeAttrPart handles and writes an attribute as a separated output part.
-func (h *CLIHandler) writeAttrPart(buf *bytes.Buffer, attr slog.Attr, groups []string, style *Style, timeLayout string, separated bool) bool {
-	pos := buf.Len()
+func (h *CLIHandler) writeAttrPart(buf *buffer, attr slog.Attr, groups *groupState, style *Style, timeLayout string, separated bool) bool {
+	pos := len(*buf)
 	writeSeparator(buf, separated)
 	if h.writeAttr(buf, attr, groups, style, timeLayout) {
 		return true
 	}
-	buf.Truncate(pos)
+	*buf = (*buf)[:pos]
 	return false
 }
 
 // writePreparedAttrPart writes a prepared attribute as a separated output part.
-func (h *CLIHandler) writePreparedAttrPart(buf *bytes.Buffer, attr slog.Attr, groups []string, style *Style, timeLayout string, separated bool) bool {
-	pos := buf.Len()
+func (h *CLIHandler) writePreparedAttrPart(buf *buffer, attr slog.Attr, groups *groupState, style *Style, timeLayout string, separated bool) bool {
+	pos := len(*buf)
 	writeSeparator(buf, separated)
 	if h.writePreparedAttr(buf, attr, groups, style, timeLayout) {
 		return true
 	}
-	buf.Truncate(pos)
+	*buf = (*buf)[:pos]
 	return false
 }
 
 // writeAttr writes the attribute to buf and reports whether it wrote a value.
-func (h *CLIHandler) writeAttr(buf *bytes.Buffer, attr slog.Attr, groups []string, style *Style, timeLayout string) bool {
+func (h *CLIHandler) writeAttr(buf *buffer, attr slog.Attr, groups *groupState, style *Style, timeLayout string) bool {
 	kind := attr.Value.Kind()
 	if kind == slog.KindLogValuer {
 		attr.Value = resolveLogValuer(attr.Value)
 		kind = attr.Value.Kind()
 	}
 	if h.attrHandler != nil && kind != slog.KindGroup {
-		attr = h.attrHandler(groups, attr)
+		var names []string
+		if groups != nil {
+			names = groups.names
+		}
+		attr = h.attrHandler(names, attr)
 		kind = attr.Value.Kind()
 		if kind == slog.KindLogValuer {
 			attr.Value = resolveLogValuer(attr.Value)
@@ -473,13 +546,14 @@ func (h *CLIHandler) writeAttr(buf *bytes.Buffer, attr slog.Attr, groups []strin
 		kind = v.Kind()
 	}
 	if kind == slog.KindGroup {
+		var local groupState
 		if groups == nil {
-			groups = make([]string, 0, 8)
+			groups = &local
 		}
-		if attr.Key != "" {
-			groups = append(groups, attr.Key)
-		}
-		return h.writeGroup(buf, v.Group(), groups, style, timeLayout)
+		namesLen, prefixLen := groups.push(attr.Key, style.Attr.KeyColor)
+		wrote := h.writeGroup(buf, v.Group(), groups, style, timeLayout)
+		groups.restore(namesLen, prefixLen)
+		return wrote
 	}
 	writeAttrValue(buf, attr, kind, groups, style, timeLayout)
 	return true
@@ -532,7 +606,7 @@ func resolveLogValuer(value slog.Value) slog.Value {
 }
 
 // writePreparedAttr writes an attribute whose descendants have been prepared.
-func (h *CLIHandler) writePreparedAttr(buf *bytes.Buffer, attr slog.Attr, groups []string, style *Style, timeLayout string) bool {
+func (h *CLIHandler) writePreparedAttr(buf *buffer, attr slog.Attr, groups *groupState, style *Style, timeLayout string) bool {
 	v := attr.Value
 	kind := v.Kind()
 	if kind == slog.KindAny {
@@ -545,13 +619,14 @@ func (h *CLIHandler) writePreparedAttr(buf *bytes.Buffer, attr slog.Attr, groups
 		kind = v.Kind()
 	}
 	if kind == slog.KindGroup {
+		var local groupState
 		if groups == nil {
-			groups = make([]string, 0, 8)
+			groups = &local
 		}
-		if attr.Key != "" {
-			groups = append(groups, attr.Key)
-		}
-		return h.writePreparedGroup(buf, v.Group(), groups, style, timeLayout)
+		namesLen, prefixLen := groups.push(attr.Key, style.Attr.KeyColor)
+		wrote := h.writePreparedGroup(buf, v.Group(), groups, style, timeLayout)
+		groups.restore(namesLen, prefixLen)
+		return wrote
 	}
 	writeAttrValue(buf, attr, kind, groups, style, timeLayout)
 	return true
@@ -579,93 +654,103 @@ func prepareSourceAttr(attr slog.Attr, source *slog.Source, fullpath bool) (slog
 }
 
 // writeAttrValue writes a non-group attribute value.
-func writeAttrValue(buf *bytes.Buffer, attr slog.Attr, kind slog.Kind, groups []string, style *Style, timeLayout string) {
+func writeAttrValue(buf *buffer, attr slog.Attr, kind slog.Kind, groups *groupState, style *Style, timeLayout string) {
 	v := attr.Value
 	kc := style.Attr.KeyColor
 	vc := style.Attr.ValueColor
 	sp := style.Attr.Separator
 
-	if len(groups) > 0 {
-		for i, key := range groups {
-			kc.WriteString(buf, key)
-			if i < len(groups)-1 {
-				kc.WriteString(buf, ".")
-			}
-		}
-		kc.WriteString(buf, ".")
+	if groups != nil {
+		*buf = append(*buf, groups.prefix...)
 	}
-	kc.WriteString(buf, attr.Key)
-	kc.WriteString(buf, sp)
+	*buf = kc.appendStrings(*buf, attr.Key, sp)
 
 	switch kind {
 	case slog.KindString:
 		s := v.String()
-		if strings.ContainsAny(s, " \t\n") || strings.ContainsAny(s, "\\\"") {
-			vc.WriteString(buf, strconv.Quote(s))
+		if needsQuote(s) {
+			*buf = vc.appendPrefix(*buf)
+			*buf = strconv.AppendQuote(*buf, s)
+			*buf = vc.appendReset(*buf)
 		} else {
-			vc.WriteString(buf, s)
+			*buf = vc.appendString(*buf, s)
 		}
 	case slog.KindInt64:
-		var b [32]byte
-		vc.WriteBytes(buf, strconv.AppendInt(b[:0], v.Int64(), 10))
+		*buf = vc.appendPrefix(*buf)
+		*buf = strconv.AppendInt(*buf, v.Int64(), 10)
+		*buf = vc.appendReset(*buf)
 	case slog.KindUint64:
-		var b [32]byte
-		vc.WriteBytes(buf, strconv.AppendUint(b[:0], v.Uint64(), 10))
+		*buf = vc.appendPrefix(*buf)
+		*buf = strconv.AppendUint(*buf, v.Uint64(), 10)
+		*buf = vc.appendReset(*buf)
 	case slog.KindFloat64:
-		var b [64]byte
-		vc.WriteBytes(buf, strconv.AppendFloat(b[:0], v.Float64(), 'g', -1, 64))
+		*buf = vc.appendPrefix(*buf)
+		*buf = strconv.AppendFloat(*buf, v.Float64(), 'g', -1, 64)
+		*buf = vc.appendReset(*buf)
 	case slog.KindBool:
 		if v.Bool() {
-			vc.WriteString(buf, "true")
+			*buf = vc.appendString(*buf, "true")
 		} else {
-			vc.WriteString(buf, "false")
+			*buf = vc.appendString(*buf, "false")
 		}
 	case slog.KindTime:
-		var b [64]byte
-		vc.WriteBytes(buf, v.Time().AppendFormat(b[:0], timeLayout))
+		*buf = vc.appendPrefix(*buf)
+		*buf = v.Time().AppendFormat(*buf, timeLayout)
+		*buf = vc.appendReset(*buf)
 	case slog.KindDuration:
-		vc.WriteString(buf, v.Duration().String())
+		*buf = vc.appendString(*buf, v.Duration().String())
 	default:
-		vc.WriteString(buf, v.String())
+		*buf = vc.appendString(*buf, v.String())
 	}
 }
 
+// needsQuote reports whether s contains a character escaped by the CLI format.
+func needsQuote(s string) bool {
+	for i := range len(s) {
+		switch s[i] {
+		case ' ', '\t', '\n', '\\', '"':
+			return true
+		}
+	}
+	return false
+}
+
 // writeGroup writes group attributes and reports whether it wrote a value.
-func (h *CLIHandler) writeGroup(buf *bytes.Buffer, attrs []slog.Attr, groups []string, style *Style, timeLayout string) bool {
+func (h *CLIHandler) writeGroup(buf *buffer, attrs []slog.Attr, groups *groupState, style *Style, timeLayout string) bool {
 	wrote := false
 	for _, attr := range attrs {
-		pos := buf.Len()
+		pos := len(*buf)
 		if wrote {
-			buf.WriteString(" ")
+			*buf = append(*buf, ' ')
 		}
 		if h.writeAttr(buf, attr, groups, style, timeLayout) {
 			wrote = true
 			continue
 		}
-		buf.Truncate(pos)
+		*buf = (*buf)[:pos]
 	}
 	return wrote
 }
 
 // writePreparedGroup writes prepared group attributes and reports whether it wrote a value.
-func (h *CLIHandler) writePreparedGroup(buf *bytes.Buffer, attrs []slog.Attr, groups []string, style *Style, timeLayout string) bool {
+func (h *CLIHandler) writePreparedGroup(buf *buffer, attrs []slog.Attr, groups *groupState, style *Style, timeLayout string) bool {
 	wrote := false
 	for _, attr := range attrs {
-		pos := buf.Len()
+		pos := len(*buf)
 		if wrote {
-			buf.WriteString(" ")
+			*buf = append(*buf, ' ')
 		}
 		if h.writePreparedAttr(buf, attr, groups, style, timeLayout) {
 			wrote = true
 			continue
 		}
-		buf.Truncate(pos)
+		*buf = (*buf)[:pos]
 	}
 	return wrote
 }
 
 // align centers the string s in a field of width w using spaces.
-func align(buf *bytes.Buffer, s string, w int) {
+func align(buf *buffer, s string, w int) {
 	if w > 0 {
 		c := runewidth.StringWidth(s)
 		p := w - c
@@ -673,16 +758,16 @@ func align(buf *bytes.Buffer, s string, w int) {
 			lp := p / 2
 			rp := p - lp
 			for range lp {
-				buf.WriteString(" ")
+				*buf = append(*buf, ' ')
 			}
-			buf.WriteString(s)
+			*buf = append(*buf, s...)
 			for range rp {
-				buf.WriteString(" ")
+				*buf = append(*buf, ' ')
 			}
 			return
 		}
 	}
-	buf.WriteString(s)
+	*buf = append(*buf, s...)
 }
 
 // setColorable wraps the given writer with colorable if it's an *os.File.

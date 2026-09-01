@@ -32,6 +32,14 @@ func (testGroupLogValuer) LogValue() slog.Value {
 	return slog.GroupValue(slog.Any("nested", testLogValuer{}))
 }
 
+// testShortWriter reports a successful partial write.
+type testShortWriter struct{}
+
+// Write writes all but the final byte.
+func (testShortWriter) Write(p []byte) (int, error) {
+	return len(p) - 1, nil
+}
+
 func TestNewCLIHandler(t *testing.T) {
 	type args struct {
 		opts []CLIHandlerOption
@@ -360,6 +368,20 @@ func TestCLIHandler_Handle(t *testing.T) {
 				r:   slog.NewRecord(time.Now(), slog.LevelError, "msg", 0),
 			},
 			wantErr: false,
+		},
+		{
+			name: "short write",
+			fields: fields{
+				w:     testShortWriter{},
+				mu:    &sync.Mutex{},
+				level: slog.LevelInfo,
+				style: Style0(),
+			},
+			args: args{
+				ctx: context.Background(),
+				r:   slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0),
+			},
+			wantErr: true,
 		},
 		{
 			name: "custom level",
@@ -1297,9 +1319,9 @@ func TestCLIHandler_writeCaller(t *testing.T) {
 				timeLayout:  tt.fields.timeLayout,
 				style:       tt.fields.style,
 			}
-			buf := &bytes.Buffer{}
-			h.writeCaller(buf, tt.args.b, h.style)
-			tt.check(t, buf.String())
+			buf := buffer{}
+			h.writeCaller(&buf, tt.args.b, h.style)
+			tt.check(t, string(buf))
 		})
 	}
 }
@@ -1529,6 +1551,17 @@ func TestCLIHandler_writeAttr(t *testing.T) {
 			want: "g1.g2.key=val",
 		},
 		{
+			name: "colored group",
+			fields: fields{
+				style: Style1(),
+			},
+			args: args{
+				attr:   slog.String("key", "val"),
+				groups: []string{"g"},
+			},
+			want: "\x1b[90mg\x1b[0m\x1b[90m.\x1b[0m\x1b[90mkey\x1b[0m\x1b[90m=\x1b[0mval",
+		},
+		{
 			name: "group attr simple",
 			fields: fields{
 				style: Style0(),
@@ -1621,9 +1654,13 @@ func TestCLIHandler_writeAttr(t *testing.T) {
 				timeLayout:  tt.fields.timeLayout,
 				style:       tt.fields.style,
 			}
-			buf := &bytes.Buffer{}
-			h.writeAttr(buf, tt.args.attr, tt.args.groups, h.style, h.timeLayout)
-			if got := buf.String(); got != tt.want {
+			buf := buffer{}
+			groups := &groupState{}
+			for _, group := range tt.args.groups {
+				groups.push(group, h.style.Attr.KeyColor)
+			}
+			h.writeAttr(&buf, tt.args.attr, groups, h.style, h.timeLayout)
+			if got := string(buf); got != tt.want {
 				t.Errorf("writeAttr() = %q, want %q", got, tt.want)
 			}
 		})
@@ -1644,11 +1681,13 @@ func TestCLIHandler_writeAttrHandlerGroups(t *testing.T) {
 				return slog.String(attr.Key, "***")
 			},
 		}
-		buf := &bytes.Buffer{}
+		buf := buffer{}
+		groups := &groupState{}
+		groups.push("account", h.style.Attr.KeyColor)
 
-		h.writeAttr(buf,
+		h.writeAttr(&buf,
 			slog.Group("profile", slog.String("password", "secret")),
-			[]string{"account"},
+			groups,
 			h.style,
 			h.timeLayout,
 		)
@@ -1656,7 +1695,7 @@ func TestCLIHandler_writeAttrHandlerGroups(t *testing.T) {
 		if want := []string{"account.profile.password"}; !reflect.DeepEqual(got, want) {
 			t.Errorf("handled attrs = %v, want %v", got, want)
 		}
-		if got, want := buf.String(), "account.profile.password=***"; got != want {
+		if got, want := string(buf), "account.profile.password=***"; got != want {
 			t.Errorf("output = %q, want %q", got, want)
 		}
 	})
@@ -1677,14 +1716,14 @@ func TestCLIHandler_writeAttrHandlerGroups(t *testing.T) {
 				return attr
 			},
 		}
-		buf := &bytes.Buffer{}
+		buf := buffer{}
 
-		h.writeAttr(buf, slog.String("outer", "value"), nil, h.style, h.timeLayout)
+		h.writeAttr(&buf, slog.String("outer", "value"), nil, h.style, h.timeLayout)
 
 		if want := []string{"outer", "changed.child"}; !reflect.DeepEqual(got, want) {
 			t.Errorf("handled attrs = %v, want %v", got, want)
 		}
-		if got, want := buf.String(), "changed.child=value"; got != want {
+		if got, want := string(buf), "changed.child=value"; got != want {
 			t.Errorf("output = %q, want %q", got, want)
 		}
 	})
@@ -1738,10 +1777,32 @@ func Test_align(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			buf := &bytes.Buffer{}
-			align(buf, tt.args.s, tt.args.w)
-			if got := buf.String(); got != tt.want {
+			buf := buffer{}
+			align(&buf, tt.args.s, tt.args.w)
+			if got := string(buf); got != tt.want {
 				t.Errorf("align() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_needsQuote(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want bool
+	}{
+		{name: "plain", text: "value", want: false},
+		{name: "space", text: "a b", want: true},
+		{name: "tab", text: "a\tb", want: true},
+		{name: "newline", text: "a\nb", want: true},
+		{name: "backslash", text: `a\b`, want: true},
+		{name: "quote", text: `a"b`, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := needsQuote(tt.text); got != tt.want {
+				t.Errorf("needsQuote() = %v, want %v", got, tt.want)
 			}
 		})
 	}
