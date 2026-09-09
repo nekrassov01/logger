@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	github.com/aws/smithy-go v1.28.1
 	github.com/mattn/go-colorable v0.1.15
-	github.com/mattn/go-runewidth v0.0.28
+	github.com/mattn/go-runewidth v0.0.29
 )
 
 require (
